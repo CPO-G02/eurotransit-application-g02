@@ -52,11 +52,11 @@ jobs:
           
           tag=$(git rev-parse --short HEAD)
           
-          # update image tag in values.yaml (adjust sed pattern if needed)
-          sed -i "s/${{ matrix.service }}Tag:.*/${{ matrix.service }}Tag: $tag/g" values.yaml
+          # update image tag in values.yaml
+          sed -i "s/${{ matrix.service }}Tag:.*/${{ matrix.service }}Tag: $tag/g" deploy/charts/eurotransit/values.yaml
           
           # commit and push safely
-          git add values.yaml
+          git add deploy/charts/eurotransit/values.yaml
           git commit -m "chore: update ${{ matrix.service }} image tag to $tag" || echo "no changes"
           
           # pull rebase prevents conflicts if multiple jobs push at once
