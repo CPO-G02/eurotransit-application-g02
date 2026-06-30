@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [catalog, orders, inventory, payments, notifications]
+
+    steps:
+      # checkout app code
+      - uses: actions/checkout@v4
+
+      # login to azure container registry
+      - uses: azure/docker-login@v1
+        with:
+          login-server: ${{ secrets.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      # build and push docker image
+      - name: build and push
+        run: |
+          # get short git sha for tagging
+          tag=$(git rev-parse --short HEAD)
+          image="${{ secrets.ACR_LOGIN_SERVER }}/eurotransit-${{ matrix.service }}:$tag"
+          
+          # build using multi-stage dockerfile
+          docker build -t $image ./${{ matrix.service }}
+          docker push $image
+
+      # checkout config repo
+      - uses: actions/checkout@v4
+        with:
+          repository: CPO-G02/eurotransit-configuration-g02
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: config-repo
+
+      # update helm values and push to trigger argo cd
+      - name: update values and commit
+        run: |
+          cd config-repo
+          
+          # setup git bot identity
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          tag=$(git rev-parse --short HEAD)
+          
+          # update image tag in values.yaml (adjust sed pattern if needed)
+          sed -i "s/${{ matrix.service }}Tag:.*/${{ matrix.service }}Tag: $tag/g" values.yaml
+          
+          # commit and push safely
+          git add values.yaml
+          git commit -m "chore: update ${{ matrix.service }} image tag to $tag" || echo "no changes"
+          
+          # pull rebase prevents conflicts if multiple jobs push at once
+          git pull --rebase origin main
+          git push origin main
