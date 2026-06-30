@@ -48,36 +48,38 @@ class OrderConsumer(
     fun handleReserved(event: InventoryReservedEvent) {
         eventRepo.existsById(event.eventId).flatMap { exists ->
             if (exists) Mono.empty()
-            else orderRepo.findById(event.orderId).flatMap { order ->
+            else orderRepo.findById(event.orderId).flatMap { nullableOrder ->
+                val order = nullableOrder!! // obliguem a kotlin a entendre que no és nul
                 
-                // create payment request
                 val payReq = PaymentRequest(order.orderId, order.userId, order.amount, order.currency)
                 
                 paymentClient.authorizePayment(payReq).flatMap { payRes ->
                     if (payRes.status == "AUTHORIZED") {
-                        // payment ok: confirm order
                         val updated = order.copy(
                             status = "CONFIRMED", 
                             transactionId = payRes.transactionId, 
                             confirmedAt = LocalDateTime.now()
                         )
-                        orderRepo.save(updated).doOnSuccess { saved ->
+                        orderRepo.save(updated).map { saved ->
+                            val safeSaved = saved!!
                             val confirmedEvent = OrderConfirmedEvent(
-                                "evt-${UUID.randomUUID()}", saved.orderId, saved.userEmail,
-                                saved.trainId, saved.seatClass, saved.quantity,
-                                saved.amount, payRes.transactionId!!
+                                "evt-${UUID.randomUUID()}", safeSaved.orderId, safeSaved.userEmail,
+                                safeSaved.trainId, safeSaved.seatClass, safeSaved.quantity,
+                                safeSaved.amount, payRes.transactionId!!
                             )
-                            kafkaTemplate.send("eurotransit.order-confirmed", saved.orderId, confirmedEvent)
+                            kafkaTemplate.send("eurotransit.order-confirmed", safeSaved.orderId, confirmedEvent)
+                            safeSaved
                         }
                     } else {
-                        // payment failed: fail order and release reservation
                         val updated = order.copy(status = "FAILED")
-                        orderRepo.save(updated).doOnSuccess { saved ->
+                        orderRepo.save(updated).map { saved ->
+                            val safeSaved = saved!!
                             val failedEvent = OrderFailedEvent(
-                                "evt-${UUID.randomUUID()}", saved.orderId, event.reservationId,
-                                payRes.reason ?: "payment_declined", saved.userEmail
+                                "evt-${UUID.randomUUID()}", safeSaved.orderId, event.reservationId,
+                                payRes.reason ?: "payment_declined", safeSaved.userEmail
                             )
-                            kafkaTemplate.send("eurotransit.order-failed", saved.orderId, failedEvent)
+                            kafkaTemplate.send("eurotransit.order-failed", safeSaved.orderId, failedEvent)
+                            safeSaved
                         }
                     }
                 }
@@ -90,14 +92,17 @@ class OrderConsumer(
     fun handleReservationFailed(event: InventoryReservationFailedEvent) {
         eventRepo.existsById(event.eventId).flatMap { exists ->
             if (exists) Mono.empty()
-            else orderRepo.findById(event.orderId).flatMap { order ->
+            else orderRepo.findById(event.orderId).flatMap { nullableOrder ->
+                val order = nullableOrder!!
                 val updated = order.copy(status = "FAILED")
-                orderRepo.save(updated).doOnSuccess { saved ->
+                orderRepo.save(updated).map { saved ->
+                    val safeSaved = saved!!
                     val failedEvent = OrderFailedEvent(
-                        "evt-${UUID.randomUUID()}", saved.orderId, null,
-                        event.reason, saved.userEmail
+                        "evt-${UUID.randomUUID()}", safeSaved.orderId, null,
+                        event.reason, safeSaved.userEmail
                     )
-                    kafkaTemplate.send("eurotransit.order-failed", saved.orderId, failedEvent)
+                    kafkaTemplate.send("eurotransit.order-failed", safeSaved.orderId, failedEvent)
+                    safeSaved
                 }
             }.delayUntil { eventRepo.save(ProcessedEvent(event.eventId)) }
         }.block()

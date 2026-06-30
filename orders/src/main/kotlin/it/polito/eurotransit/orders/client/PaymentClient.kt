@@ -1,7 +1,6 @@
 package it.polito.eurotransit.orders.client
 
 import com.fasterxml.jackson.annotation.JsonProperty
-import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
@@ -30,17 +29,17 @@ class PaymentClient(
 ) {
     private val webClient = webClientBuilder.baseUrl(paymentsUrl).build()
 
-    // authorize payment synchronously with circuit breaker
-    @CircuitBreaker(name = "payments-client", fallbackMethod = "fallbackPayment")
+    // authorize payment synchronously with native fallback
     fun authorizePayment(req: PaymentRequest): Mono<PaymentResponse> {
         return webClient.post()
             .uri("/authorize")
             .bodyValue(req)
             .retrieve()
             .bodyToMono(PaymentResponse::class.java)
+            .onErrorResume { fallbackPayment(req, it) }
     }
 
-    // fallback if payments service is down or circuit is open
+    // fallback if payments service is down
     fun fallbackPayment(req: PaymentRequest, t: Throwable): Mono<PaymentResponse> {
         return Mono.just(
             PaymentResponse(
