@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - test-ci-pipelines
 
 jobs:
   build-and-deploy:
