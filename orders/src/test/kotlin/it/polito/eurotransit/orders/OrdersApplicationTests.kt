@@ -10,6 +10,5 @@ class OrdersApplicationTests {
 
     @Test
     fun contextLoads() {
-        // disabled temporarily
     }
 }
