@@ -10,6 +10,6 @@ class OrdersApplicationTests {
 
     @Test
     fun contextLoads() {
-        // disabled temporarily to unblock Phase 1 CI scaffold.
+        // disabled temporarily
     }
 }
