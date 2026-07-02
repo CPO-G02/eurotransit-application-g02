@@ -5,31 +5,44 @@ import it.polito.eurotransit.orders.domain.ProcessedRequest
 import it.polito.eurotransit.orders.dto.OrderRequest
 import it.polito.eurotransit.orders.repository.OrderRepository
 import it.polito.eurotransit.orders.repository.ProcessedRequestRepository
+import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
-import reactor.core.publisher.Mono
+import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
+
+// kafka event dto for order-placed
+data class OrderPlacedEvent(
+    val eventId: String,
+    val orderId: String,
+    val trainId: String,
+    val seatClass: String,
+    val quantity: Int
+)
 
 @Service
 class OrderService(
     private val orderRepo: OrderRepository,
-    private val requestRepo: ProcessedRequestRepository
+    private val requestRepo: ProcessedRequestRepository,
+    private val kafkaTemplate: KafkaTemplate<String, Any>
 ) {
 
     // create new order with level 1 idempotency check
-    fun createOrder(req: OrderRequest): Mono<Order> {
-        return requestRepo.findById(req.idempotencyKey)
-            .flatMap { existingReq ->
-                // idempotent match found, return the original order
-                orderRepo.findById(existingReq.orderId)
-            }
-            .switchIfEmpty(
-                // new request, process normally
-                saveNewOrder(req)
-            )
+    @Transactional
+    suspend fun createOrder(req: OrderRequest): Order {
+        val existingReq = requestRepo.findById(req.idempotencyKey)
+        
+        if (existingReq != null) {
+            // idempotent match found, return the original order
+            return orderRepo.findById(existingReq.orderId) 
+                ?: throw IllegalStateException("order not found for idempotency key")
+        }
+
+        // new request, process normally
+        return saveNewOrder(req)
     }
 
-    // save new order and register idempotency key
-    private fun saveNewOrder(req: OrderRequest): Mono<Order> {
+    // save new order, register idempotency key, and emit kafka event
+    private suspend fun saveNewOrder(req: OrderRequest): Order {
         val newOrderId = "ord-${UUID.randomUUID().toString().take(8)}"
         
         val order = Order(
@@ -49,14 +62,26 @@ class OrderService(
             orderId = newOrderId
         )
 
-        // save order first, then save idempotency record, then return the order
-        return orderRepo.save(order)
-            .delayUntil { requestRepo.save(processedReq) }
-            // todo: trigger kafka 'order-placed' event here
+        // save to db sequentially (wrapped in the @Transactional boundary)
+        val savedOrder = orderRepo.save(order)
+        requestRepo.save(processedReq)
+            
+        val event = OrderPlacedEvent(
+            eventId = "evt-${UUID.randomUUID()}",
+            orderId = savedOrder.orderId,
+            trainId = savedOrder.trainId,
+            seatClass = savedOrder.seatClass,
+            quantity = savedOrder.quantity
+        )
+        
+        // emit event to kafka using orderId as the partition key
+        kafkaTemplate.send("eurotransit.order-placed", event.orderId, event)
+
+        return savedOrder
     }
 
     // get order status for polling
-    fun getOrderStatus(orderId: String): Mono<Order> {
+    suspend fun getOrderStatus(orderId: String): Order? {
         return orderRepo.findById(orderId)
     }
 }

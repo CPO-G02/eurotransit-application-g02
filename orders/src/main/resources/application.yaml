@@ -50,7 +50,19 @@ resilience4j:
   circuitbreaker:
     instances:
       payments-client:
+        register-health-indicator: true
         sliding-window-size: 10
         failure-rate-threshold: 50
         wait-duration-in-open-state: 10s
         permitted-number-of-calls-in-half-open-state: 3
+  timelimiter:
+    instances:
+      payments-client:
+        timeout-duration: 2s
+  retry:
+    instances:
+      payments-client:
+        max-attempts: 3
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
