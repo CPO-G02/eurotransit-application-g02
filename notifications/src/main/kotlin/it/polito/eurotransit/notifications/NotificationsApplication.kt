@@ -7,5 +7,5 @@ import org.springframework.boot.runApplication
 class NotificationsApplication
 
 fun main(args: Array<String>) {
-	runApplication<NotificationsApplication>(*args)
+    runApplication<NotificationsApplication>(*args)
 }
