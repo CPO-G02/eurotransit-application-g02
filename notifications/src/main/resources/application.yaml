@@ -1,3 +1,26 @@
 spring:
   application:
     name: notifications
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: notifications-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "it.polito.eurotransit.notifications.dto"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus, health
+  endpoint:
+    prometheus:
+      enabled: true
+
+server:
+  shutdown: graceful
