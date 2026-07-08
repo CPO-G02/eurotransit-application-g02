@@ -7,23 +7,45 @@ on:
       - test-ci-pipelines
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.filter.outputs.changes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # output changed services as json
+          list-tags: 'json'
+          filters: |
+            catalog: 'catalog/**'
+            orders: 'orders/**'
+            inventory: 'inventory/**'
+            payments: 'payments/**'
+            notifications: 'notifications/**'
+
   build-and-deploy:
+    needs: detect-changes
+    # run if changes detected
+    if: ${{ needs.detect-changes.outputs.services != '[]' && needs.detect-changes.outputs.services != '' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [catalog, orders, inventory, payments, notifications]
+        # build dynamic matrix
+        service: ${{ fromJSON(needs.detect-changes.outputs.services) }}
 
     steps:
-      # checkout app code
+      # checkout app
       - uses: actions/checkout@v4
 
-      # setup java to run gradle build and tests first
+      # setup java
       - uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
           
-      # run unit and integration tests
+      # run tests
       - name: build and test
         run: |
           cd ${{ matrix.service }}
@@ -31,14 +53,14 @@ jobs:
           ./gradlew build
           ./gradlew test
 
-      # login to azure container registry
+      # acr login
       - uses: azure/docker-login@v1
         with:
           login-server: ${{ secrets.ACR_LOGIN_SERVER }}
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
-      # build and push docker image
+      # build and push
       - name: build and push
         run: |
           tag=$(git rev-parse --short HEAD)
@@ -47,14 +69,14 @@ jobs:
           docker build -t $image ./${{ matrix.service }}
           docker push $image
 
-      # checkout config repo
+      # checkout config
       - uses: actions/checkout@v4
         with:
           repository: CPO-G02/eurotransit-configuration-g02
           token: ${{ secrets.GITOPS_TOKEN }}
           path: config-repo
 
-      # update helm values and push to trigger argo cd
+      # update helm values
       - name: update values and commit
         run: |
           cd config-repo
@@ -64,12 +86,13 @@ jobs:
           
           tag=$(git rev-parse --short HEAD)
           
-          sed -i "s/${{ matrix.service }}Tag:.*/${{ matrix.service }}Tag: $tag/g" deploy/charts/eurotransit/values.yaml
+          # update nested tag value using yq
+          yq -i ".${{ matrix.service }}.image.tag = \"$tag\"" deploy/charts/eurotransit/values.yaml
           
           git add deploy/charts/eurotransit/values.yaml
           git commit -m "chore: update ${{ matrix.service }} image tag to $tag" || echo "no changes"
           
-          # loop with retries in case multiple matrix jobs push at the exact same time
+          # retry push on collision
           n=0
           until [ "$n" -ge 5 ]
           do
