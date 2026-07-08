@@ -63,9 +63,11 @@ jobs:
 
       # build and push
       - name: build and push
+        env:
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          tag=$(git rev-parse --short HEAD)
-          image="${{ secrets.ACR_LOGIN_SERVER }}/eurotransit-${{ matrix.service }}:$tag"
+          tag="${IMAGE_TAG:0:7}"
+          image="${{ secrets.ACR_LOGIN_SERVER }}/eurotransit/${{ matrix.service }}:$tag"
           
           docker build -t $image ./${{ matrix.service }}
           docker push $image
@@ -79,13 +81,15 @@ jobs:
 
       # update helm values
       - name: update values and commit
+        env:
+          IMAGE_TAG: ${{ github.sha }}
         run: |
           cd config-repo
           
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          tag=$(git rev-parse --short HEAD)
+          tag="${IMAGE_TAG:0:7}"
           
           # update nested tag value using yq
           yq -i ".${{ matrix.service }}.image.tag = \"$tag\"" deploy/charts/eurotransit/values.yaml
