@@ -2,12 +2,11 @@ package it.polito.eurotransit.orders
 
 import it.polito.eurotransit.orders.domain.Order
 import it.polito.eurotransit.orders.repository.OrderRepository
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
-import org.mockito.Mockito.`when`
 import org.mockito.Mockito.mock
+import org.mockito.kotlin.whenever
 
 class SagaIntegrationTest {
 
@@ -17,15 +16,10 @@ class SagaIntegrationTest {
         val mockOrder = mock(Order::class.java)
         val orderId = "ord-123"
 
-        `when`(mockOrder.status).thenReturn("CONFIRMED")
+        whenever(mockOrder.status).thenReturn("CONFIRMED")
+        whenever(orderRepo.findById(orderId)).thenReturn(mockOrder)
 
-        runBlocking {
-            `when`(orderRepo.findById(orderId)).thenReturn(mockOrder)
-        }
-
-        val resultOrder = runBlocking {
-            orderRepo.findById(orderId)
-        }
+        val resultOrder = orderRepo.findById(orderId)
 
         assertEquals("CONFIRMED", resultOrder?.status)
     }
