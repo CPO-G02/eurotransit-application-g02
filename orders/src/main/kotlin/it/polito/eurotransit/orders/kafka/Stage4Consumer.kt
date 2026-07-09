@@ -49,7 +49,7 @@ class Stage4Consumer(
                 "event_timestamp" to Instant.now().toString(),
                 "order_id" to failedOrder.orderId,
                 "reservation_id" to event["reservation_id"]?.asText(),
-                "reason" to (event["reason"]?.asText() ?: "payment_declined"),
+                "reason" to (event["reason"]?.asText() ?: "PAYMENT_REJECTED"),
                 "user_email" to failedOrder.userEmail
             )
             outboxRepo.save(OutboxEntry(

@@ -57,11 +57,14 @@ class Stage2Consumer(
 
             // determine outcome
             val (nextTopic, nextPayload) = if (response.status == "AUTHORIZED") {
+                val transactionId = response.transaction_id
+                    ?: throw IllegalStateException("authorized payment response missing transaction_id for order $orderId")
+
                 "eurotransit.payment-authorized" to mapOf(
                     "event_id" to nextEventId,
                     "event_timestamp" to Instant.now().toString(),
                     "order_id" to orderId,
-                    "transaction_id" to response.transaction_id,
+                    "transaction_id" to transactionId,
                     "amount" to authorizeRequest.amount,
                     "currency" to authorizeRequest.currency
                 )

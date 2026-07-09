@@ -54,6 +54,35 @@ class Stage4ConsumerTest {
         assertTrue(payload["event_id"].asText().startsWith("evt-"))
         assertTrue(payload["event_timestamp"].asText().isNotBlank())
         assertEquals("res-1", payload["reservation_id"].asText())
+        assertEquals("payment_declined", payload["reason"].asText())
         verify(processedEventRepo).save(any())
+    }
+
+    @Test
+    fun `should use canonical payment rejected reason when payment-failed event has no reason`() = runBlocking {
+        val orderId = "ord-1"
+        val message = """{"event_id": "evt-4", "order_id": "$orderId", "reservation_id": "res-1"}"""
+
+        val existingOrder = Order(
+            orderId = orderId,
+            userId = "user-1",
+            userEmail = "user@example.com",
+            trainId = "T1",
+            seatClass = "first",
+            quantity = 1,
+            amount = BigDecimal("100.00"),
+            currency = "EUR",
+            status = "RESERVED"
+        )
+
+        whenever(orderRepo.findById(orderId)).thenReturn(existingOrder)
+        whenever(processedEventRepo.existsById("evt-4")).thenReturn(false)
+
+        consumer.consumePaymentFailed(message)
+
+        val outboxCaptor = ArgumentCaptor.forClass(OutboxEntry::class.java)
+        verify(outboxRepo).save(outboxCaptor.capture())
+        val payload = objectMapper.readTree(outboxCaptor.value.payload)
+        assertEquals("PAYMENT_REJECTED", payload["reason"].asText())
     }
 }

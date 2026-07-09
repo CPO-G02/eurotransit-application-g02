@@ -11,6 +11,7 @@ import it.polito.eurotransit.orders.repository.ProcessedEventRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentCaptor
 import org.mockito.ArgumentMatchers.any
@@ -68,5 +69,46 @@ class Stage2ConsumerTest {
         assertTrue(payload["event_timestamp"].asText().isNotBlank())
         assertEquals("tx-1", payload["transaction_id"].asText())
         verify(processedEventRepo).save(any())
+    }
+
+    @Test
+    fun `should reject authorized payment response without transaction id`() = runBlocking {
+        val message = """{
+            "event_id": "evt-2",
+            "order_id": "ord-1",
+            "reservation_id": "res-1",
+            "user_id": "user-1",
+            "amount": 100.0,
+            "currency": "EUR"
+        }"""
+
+        whenever(processedEventRepo.existsById("evt-2")).thenReturn(false)
+        whenever(orderRepo.findById("ord-1")).thenReturn(Order(
+            orderId = "ord-1",
+            userId = "user-1",
+            userEmail = "user@example.com",
+            trainId = "T1",
+            seatClass = "first",
+            quantity = 1,
+            amount = BigDecimal("100.00"),
+            currency = "EUR",
+            status = "PENDING"
+        ))
+
+        whenever(paymentClient.authorizePayment(any())).thenReturn(PaymentAuthorizeResponse(
+            transaction_id = null,
+            status = "AUTHORIZED",
+            reason = null
+        ))
+
+        try {
+            consumer.consumeInventoryReserved(message)
+            fail("Expected IllegalStateException")
+        } catch (e: IllegalStateException) {
+            assertTrue(e.message!!.contains("missing transaction_id"))
+        }
+
+        verify(outboxRepo, never()).save(any())
+        verify(processedEventRepo, never()).save(any())
     }
 }
