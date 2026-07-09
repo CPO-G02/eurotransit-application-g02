@@ -1,4 +1,4 @@
-package it.polito.eurotransit.inventory
+package it.polito.eurotransit.catalog
 
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
