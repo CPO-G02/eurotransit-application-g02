@@ -20,6 +20,13 @@ repositories {
 
 dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-webflux")
+	implementation("org.springframework.boot:spring-boot-starter-actuator")
+	implementation("org.springframework.boot:spring-boot-starter-data-r2dbc")
+	runtimeOnly("org.postgresql:r2dbc-postgresql")
+	runtimeOnly("io.micrometer:micrometer-registry-prometheus")
+	// springdoc 3.x is the Spring Boot 4 line (2.8.x targets Boot 3.x, where the
+	// Swagger UI does not serve under Framework 7).
+	implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:3.0.3")
 	implementation("io.projectreactor.kotlin:reactor-kotlin-extensions")
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
