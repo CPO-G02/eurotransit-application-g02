@@ -28,7 +28,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
     implementation("io.github.resilience4j:resilience4j-spring-boot3:2.2.0")
     implementation("io.github.resilience4j:resilience4j-kotlin:2.2.0")
-    implementation("tools.jackson.module:jackson-module-kotlin")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+    implementation("com.fasterxml.jackson.core:jackson-databind")
     runtimeOnly("org.postgresql:postgresql")
     runtimeOnly("org.postgresql:r2dbc-postgresql")
     testImplementation("org.springframework.boot:spring-boot-starter-data-r2dbc-test")
@@ -36,6 +37,10 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-webflux-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")
+    testImplementation("com.h2database:h2")
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+    testImplementation("org.wiremock:wiremock-standalone:3.9.1")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -45,6 +50,6 @@ kotlin {
     }
 }
 
-tasks.withType<Test> {
+tasks.test {
     useJUnitPlatform()
 }

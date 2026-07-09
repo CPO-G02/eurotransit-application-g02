@@ -27,3 +27,13 @@ CREATE TABLE IF NOT EXISTS processed_events (
     result JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- outbox table for reliable message publishing
+CREATE TABLE IF NOT EXISTS outbox (
+    id BIGSERIAL PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    payload JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    sent_at TIMESTAMPTZ
+);
