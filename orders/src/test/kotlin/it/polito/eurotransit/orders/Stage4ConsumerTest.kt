@@ -7,6 +7,8 @@ import it.polito.eurotransit.orders.repository.OrderRepository
 import it.polito.eurotransit.orders.repository.OutboxRepository
 import it.polito.eurotransit.orders.repository.ProcessedEventRepository
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentCaptor
 import org.mockito.ArgumentMatchers.any
@@ -49,9 +51,9 @@ class Stage4ConsumerTest {
         val outboxCaptor = ArgumentCaptor.forClass(OutboxEntry::class.java)
         verify(outboxRepo).save(outboxCaptor.capture())
         val payload = objectMapper.readTree(outboxCaptor.value.payload)
-        assert(payload["event_id"].asText().startsWith("evt-"))
-        assert(payload["event_timestamp"].asText().isNotBlank())
-        assert(payload["reservation_id"].asText() == "res-1")
+        assertTrue(payload["event_id"].asText().startsWith("evt-"))
+        assertTrue(payload["event_timestamp"].asText().isNotBlank())
+        assertEquals("res-1", payload["reservation_id"].asText())
         verify(processedEventRepo).save(any())
     }
 }
