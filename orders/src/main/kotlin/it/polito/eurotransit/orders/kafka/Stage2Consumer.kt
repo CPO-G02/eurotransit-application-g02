@@ -5,6 +5,7 @@ import it.polito.eurotransit.orders.client.PaymentClient
 import it.polito.eurotransit.orders.dto.PaymentAuthorizeRequest
 import it.polito.eurotransit.orders.domain.OutboxEntry
 import it.polito.eurotransit.orders.domain.ProcessedEvent
+import it.polito.eurotransit.orders.repository.OrderRepository
 import it.polito.eurotransit.orders.repository.OutboxRepository
 import it.polito.eurotransit.orders.repository.ProcessedEventRepository
 import org.slf4j.LoggerFactory
@@ -18,6 +19,7 @@ import java.util.UUID
 @Component
 class Stage2Consumer(
     private val paymentClient: PaymentClient,
+    private val orderRepo: OrderRepository,
     private val outboxRepo: OutboxRepository,
     private val processedEventRepo: ProcessedEventRepository,
     private val objectMapper: ObjectMapper
@@ -37,7 +39,11 @@ class Stage2Consumer(
         logger.info("Processing inventory-reserved event: $eventId")
 
         try {
-            // Ara utilitzem BigDecimal per a l'amount
+            val order = orderRepo.findById(orderId)
+                ?: throw IllegalStateException("order $orderId not found")
+            val reservedOrder = order.copy(status = "RESERVED")
+            orderRepo.save(reservedOrder)
+
             val authorizeRequest = PaymentAuthorizeRequest(
                 idempotency_key = orderId,
                 user_id = event["user_id"].asText(), 
