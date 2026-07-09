@@ -10,7 +10,7 @@ spring:
     init:
       mode: always
   
-  # reactive database connection
+  # reactive postgresql connection
   r2dbc:
     url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:orders_db}
     username: ${DB_USER:postgres}
@@ -33,19 +33,22 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
-# custom properties based on v3 contract
+# custom app properties v3 main
 app:
   kafka:
     topics:
       order-placed: eurotransit.order-placed
+      inventory-reserved: eurotransit.inventory-reserved
+      payment-authorized: eurotransit.payment-authorized
+      payment-failed: eurotransit.payment-failed
       order-confirmed: eurotransit.order-confirmed
       order-failed: eurotransit.order-failed
-      inventory-reserved: eurotransit.inventory-reserved
-      inventory-reservation-failed: eurotransit.inventory-reservation-failed
   payments:
     url: http://${PAYMENTS_HOST:localhost}:8080/api/v1/payments
+  inventory:
+    url: http://${INVENTORY_HOST:localhost}:8080
 
-# circuit breaker for synchronous payments call
+# circuit breaker for sync calls
 resilience4j:
   circuitbreaker:
     instances:
@@ -55,13 +58,26 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 10s
         permitted-number-of-calls-in-half-open-state: 3
+      inventory-client:
+        register-health-indicator: true
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
   timelimiter:
     instances:
       payments-client:
         timeout-duration: 2s
+      inventory-client:
+        timeout-duration: 2s
   retry:
     instances:
       payments-client:
+        max-attempts: 3
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+      inventory-client:
         max-attempts: 3
         wait-duration: 500ms
         enable-exponential-backoff: true
