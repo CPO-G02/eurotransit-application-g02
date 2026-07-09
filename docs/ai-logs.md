@@ -5,6 +5,61 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-09 18:24
+
+**Agent**
+
+Claude (Opus 4.8) via Claude Code
+
+**Task**
+
+Make the Catalog service coherent with the team's previous microservices style:
+add OpenAPI/Swagger documentation, restructure the exception handler, and add
+Spring Boot Actuator (health, probes, Prometheus metrics).
+
+**Files Modified / Created (catalog/)**
+
+- build.gradle.kts — added springdoc-openapi-starter-webflux-ui, actuator, and
+  micrometer-registry-prometheus
+- src/main/kotlin/.../controllers/CatalogController.kt — @Tag/@Operation/
+  @ApiResponses/@Parameter; the 404 response schema points to ErrorResponse
+- src/main/kotlin/.../exceptions/CatalogExceptionHandler.kt — introduced a sealed
+  CatalogException(status, errorCode, message) base with ProductNotFoundException,
+  and a single @RestControllerAdvice with logging using ServerWebExchange
+- src/main/kotlin/.../config/OpenApiConfig.kt — OpenAPI title/description/version
+- src/main/resources/application.yaml — management endpoints (health, info,
+  prometheus), Kubernetes probe groups enabled, health details shown
+
+**Summary**
+
+Error handling was restructured into the team's coherent style (typed exception
+base + centralized advice + logging) but the response body was deliberately kept
+as the API contract's {"error":"product_not_found"}, NOT switched to RFC 7807
+ProblemDetail — a ProblemDetail switch would be an API Contract change requiring
+team approval. Swagger UI, the OpenAPI JSON and the actuator endpoints were all
+verified working at runtime by the human.
+
+**Potential Risks / Assumptions**
+
+- First attempt used springdoc 2.8.x, which targets Spring Boot 3.x: the OpenAPI
+  JSON generated but the Swagger UI would not serve on Spring Boot 4 / Framework
+  7. Fixed by moving to the springdoc 3.x line (3.0.3), the Boot 4 branch. Worth
+  an ai-mistake-log.md entry.
+- springdoc 3.x on Boot 4 is very new; keep an eye on it as the app evolves.
+
+**Confidence**
+
+High — build and tests pass, and the human confirmed Swagger UI, /v3/api-docs
+and /actuator/{health,prometheus} all respond at runtime.
+
+**Notes**
+
+Actuator is per-service (each microservice exposes its own /actuator/*). Still
+outstanding for full deploy-readiness (config repo): the catalog-db CloudNativePG
+manifest + secret, and reconciling architecture-design.md (still says "no DB").
+
+---
+
 ### 2026-07-08 22:04
 
 **Agent**
