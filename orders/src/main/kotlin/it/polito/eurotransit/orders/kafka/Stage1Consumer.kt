@@ -5,16 +5,20 @@ import it.polito.eurotransit.orders.client.InventoryClient
 import it.polito.eurotransit.orders.dto.InventoryReserveRequest
 import it.polito.eurotransit.orders.domain.OutboxEntry
 import it.polito.eurotransit.orders.domain.ProcessedEvent
+import it.polito.eurotransit.orders.repository.OrderRepository
 import it.polito.eurotransit.orders.repository.OutboxRepository
 import it.polito.eurotransit.orders.repository.ProcessedEventRepository
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
+import java.time.Instant
+import java.util.UUID
 
 @Component
 class Stage1Consumer(
     private val inventoryClient: InventoryClient,
+    private val orderRepo: OrderRepository,
     private val outboxRepo: OutboxRepository,
     private val processedEventRepo: ProcessedEventRepository,
     private val objectMapper: ObjectMapper
@@ -42,17 +46,34 @@ class Stage1Consumer(
 
             // call inventory sync
             val response = inventoryClient.reserveSeats(reserveRequest)
+            val order = orderRepo.findById(reserveRequest.idempotency_key)
+                ?: throw IllegalStateException("order ${reserveRequest.idempotency_key} not found")
+            val nextEventId = "evt-${UUID.randomUUID()}"
 
             // determine outcome
             val (nextTopic, nextPayload) = if (response.status == "RESERVED") {
-                "inventory-reserved" to mapOf("order_id" to reserveRequest.idempotency_key, "status" to "SUCCESS")
+                "eurotransit.inventory-reserved" to mapOf(
+                    "event_id" to nextEventId,
+                    "event_timestamp" to Instant.now().toString(),
+                    "order_id" to order.orderId,
+                    "reservation_id" to response.reservation_id,
+                    "user_id" to order.userId,
+                    "amount" to order.amount,
+                    "currency" to order.currency
+                )
             } else {
-                "order-failed" to mapOf("order_id" to reserveRequest.idempotency_key, "reason" to "INSUFFICIENT_SEATS")
+                "eurotransit.order-failed" to mapOf(
+                    "event_id" to nextEventId,
+                    "event_timestamp" to Instant.now().toString(),
+                    "order_id" to order.orderId,
+                    "reason" to "INSUFFICIENT_SEATS",
+                    "user_email" to order.userEmail
+                )
             }
 
             // save to outbox
             outboxRepo.save(OutboxEntry(
-                eventId = "evt-${reserveRequest.idempotency_key}-stage1",
+                eventId = nextEventId,
                 topic = nextTopic,
                 payload = objectMapper.writeValueAsString(nextPayload)
             ))

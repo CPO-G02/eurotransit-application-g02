@@ -1,5 +1,6 @@
 package it.polito.eurotransit.orders.service
 
+import com.fasterxml.jackson.annotation.JsonProperty
 import it.polito.eurotransit.orders.domain.Order
 import it.polito.eurotransit.orders.domain.ProcessedRequest
 import it.polito.eurotransit.orders.dto.OrderRequest
@@ -8,14 +9,15 @@ import it.polito.eurotransit.orders.repository.ProcessedRequestRepository
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Instant
 import java.util.UUID
 
-// kafka event dto for order-placed
 data class OrderPlacedEvent(
-    val eventId: String,
-    val orderId: String,
-    val trainId: String,
-    val seatClass: String,
+    @JsonProperty("event_id") val eventId: String,
+    @JsonProperty("event_timestamp") val eventTimestamp: String,
+    @JsonProperty("order_id") val orderId: String,
+    @JsonProperty("train_id") val trainId: String,
+    @JsonProperty("seat_class") val seatClass: String,
     val quantity: Int
 )
 
@@ -68,6 +70,7 @@ class OrderService(
             
         val event = OrderPlacedEvent(
             eventId = "evt-${UUID.randomUUID()}",
+            eventTimestamp = Instant.now().toString(),
             orderId = savedOrder.orderId,
             trainId = savedOrder.trainId,
             seatClass = savedOrder.seatClass,

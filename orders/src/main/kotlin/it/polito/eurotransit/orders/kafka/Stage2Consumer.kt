@@ -11,7 +11,9 @@ import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
-import java.math.BigDecimal // <--- Import necessari
+import java.math.BigDecimal
+import java.time.Instant
+import java.util.UUID
 
 @Component
 class Stage2Consumer(
@@ -45,17 +47,31 @@ class Stage2Consumer(
 
             // call payments sync
             val response = paymentClient.authorizePayment(authorizeRequest)
+            val nextEventId = "evt-${UUID.randomUUID()}"
 
             // determine outcome
             val (nextTopic, nextPayload) = if (response.status == "AUTHORIZED") {
-                "payment-authorized" to mapOf("order_id" to orderId, "status" to "SUCCESS")
+                "eurotransit.payment-authorized" to mapOf(
+                    "event_id" to nextEventId,
+                    "event_timestamp" to Instant.now().toString(),
+                    "order_id" to orderId,
+                    "transaction_id" to response.transaction_id,
+                    "amount" to authorizeRequest.amount,
+                    "currency" to authorizeRequest.currency
+                )
             } else {
-                "payment-failed" to mapOf("order_id" to orderId, "reason" to "PAYMENT_REJECTED")
+                "eurotransit.payment-failed" to mapOf(
+                    "event_id" to nextEventId,
+                    "event_timestamp" to Instant.now().toString(),
+                    "order_id" to orderId,
+                    "reservation_id" to event["reservation_id"]?.asText(),
+                    "reason" to (response.reason ?: "PAYMENT_REJECTED")
+                )
             }
 
             // save to outbox
             outboxRepo.save(OutboxEntry(
-                eventId = "evt-$orderId-stage2",
+                eventId = nextEventId,
                 topic = nextTopic,
                 payload = objectMapper.writeValueAsString(nextPayload)
             ))
