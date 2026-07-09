@@ -67,7 +67,7 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           tag="${IMAGE_TAG:0:7}"
-          image="${{ secrets.ACR_LOGIN_SERVER }}/eurotransit/${{ matrix.service }}:$tag"
+          image="${{ secrets.ACR_LOGIN_SERVER }}/eurotransit-${{ matrix.service }}:$tag"
           
           docker build -t $image ./${{ matrix.service }}
           docker push $image
