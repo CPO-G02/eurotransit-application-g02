@@ -20,7 +20,7 @@ class DefaultCatalogService(
             .toList()
             .groupBy { it.trainId }
 
-        return productRepository.findAll()
+        return productRepository.findAllByOrderByTrainIdAsc()
             .toList()
             .map { product -> product.toResponse(seatClassesByTrain[product.trainId].orEmpty()) }
     }

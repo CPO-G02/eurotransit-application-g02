@@ -51,9 +51,9 @@ class CatalogController(
             ),
         ],
     )
-    @GetMapping("/{trainId}")
+    @GetMapping("/{train_id}")
     suspend fun getProduct(
-        @Parameter(description = "Train identifier, e.g. TR-101") @PathVariable trainId: String,
+        @Parameter(description = "Train identifier, e.g. TR-101") @PathVariable("train_id") trainId: String,
     ): ProductResponse =
         catalogService.getProduct(trainId) ?: throw ProductNotFoundException(trainId)
 }
