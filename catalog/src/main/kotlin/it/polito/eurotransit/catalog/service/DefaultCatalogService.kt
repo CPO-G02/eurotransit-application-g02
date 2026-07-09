@@ -16,8 +16,6 @@ class DefaultCatalogService(
 ) : CatalogService {
 
     override suspend fun listProducts(): List<ProductResponse> {
-        // One query for all seat classes, grouped in memory, to avoid an N+1
-        // fan-out over the products. The catalog is small and staleness-tolerant.
         val seatClassesByTrain = seatClassRepository.findAllByOrderByPriceAsc()
             .toList()
             .groupBy { it.trainId }

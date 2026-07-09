@@ -9,10 +9,7 @@ import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
-/**
- * Public read-only catalog API (contract §1.1). The full path is mapped here
- * because Traefik routes /api/v1/catalog as a prefix without stripping it.
- */
+
 @RestController
 @RequestMapping("/api/v1/catalog/products")
 class CatalogController(

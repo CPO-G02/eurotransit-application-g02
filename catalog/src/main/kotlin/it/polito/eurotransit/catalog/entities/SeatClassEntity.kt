@@ -5,11 +5,7 @@ import org.springframework.data.relational.core.mapping.Column
 import org.springframework.data.relational.core.mapping.Table
 import java.math.BigDecimal
 
-/**
- * A priced seat class (e.g. standard / business) belonging to a train. Modelled
- * as a separate table because R2DBC has no aggregate/join mapping — the nested
- * seat_classes array in the API response is assembled in the service layer.
- */
+
 @Table("seat_classes")
 data class SeatClassEntity(
     @Id val id: Long? = null,
