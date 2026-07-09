@@ -10,7 +10,9 @@ import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
+import java.time.Instant
 import java.time.LocalDateTime
+import java.util.UUID
 
 @Component
 class Stage3Consumer(
@@ -39,16 +41,29 @@ class Stage3Consumer(
                 ?: throw IllegalStateException("order $orderId not found")
             
             val confirmedOrder = order.copy(
-                status = "CONFIRMED", 
+                status = "CONFIRMED",
+                transactionId = event["transaction_id"]?.asText()
+                    ?: throw IllegalArgumentException("missing transaction_id in payment-authorized event $eventId"),
                 confirmedAt = LocalDateTime.now()
             )
             orderRepo.save(confirmedOrder)
 
             // save confirmation to outbox
-            val nextPayload = mapOf("order_id" to orderId, "status" to "CONFIRMED")
+            val nextEventId = "evt-${UUID.randomUUID()}"
+            val nextPayload = mapOf(
+                "event_id" to nextEventId,
+                "event_timestamp" to Instant.now().toString(),
+                "order_id" to confirmedOrder.orderId,
+                "user_email" to confirmedOrder.userEmail,
+                "train_id" to confirmedOrder.trainId,
+                "seat_class" to confirmedOrder.seatClass,
+                "quantity" to confirmedOrder.quantity,
+                "amount" to confirmedOrder.amount,
+                "transaction_id" to confirmedOrder.transactionId
+            )
             outboxRepo.save(OutboxEntry(
-                eventId = "evt-$orderId-stage3",
-                topic = "order-confirmed",
+                eventId = nextEventId,
+                topic = "eurotransit.order-confirmed",
                 payload = objectMapper.writeValueAsString(nextPayload)
             ))
 
