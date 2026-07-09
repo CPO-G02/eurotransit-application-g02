@@ -10,13 +10,6 @@ import org.springframework.test.web.reactive.server.WebTestClient
 import java.math.BigDecimal
 import java.time.Instant
 
-/**
- * Standalone web test: exercises routing, the 404 mapping, and the snake_case
- * JSON contract without a Spring context or a database. The controller is bound
- * directly with a hand-written fake service, so no autoconfigure test slice,
- * mocking framework, or Testcontainers is required (full DB-backed integration
- * tests are deferred to Phase 2).
- */
 class CatalogControllerTest {
 
     private val service = object : CatalogService {
