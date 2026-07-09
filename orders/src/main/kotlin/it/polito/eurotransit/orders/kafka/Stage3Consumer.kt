@@ -41,8 +41,9 @@ class Stage3Consumer(
                 ?: throw IllegalStateException("order $orderId not found")
             
             val confirmedOrder = order.copy(
-                status = "CONFIRMED", 
-                transactionId = event["transaction_id"]?.asText(),
+                status = "CONFIRMED",
+                transactionId = event["transaction_id"]?.asText()
+                    ?: throw IllegalArgumentException("missing transaction_id in payment-authorized event $eventId"),
                 confirmedAt = LocalDateTime.now()
             )
             orderRepo.save(confirmedOrder)
