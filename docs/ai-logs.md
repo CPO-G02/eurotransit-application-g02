@@ -5,6 +5,77 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-10 17:30
+
+**Agent**
+
+Claude (Opus 4.8) via Claude Code
+
+**Task**
+
+Implement the Payments service from scratch: the synchronous `POST
+/api/v1/payments/authorize` endpoint (contract §1.5), backed by its own
+`payments-db`. Circuit breaker (Payments→gateway) and request-level idempotency
+(`processed_requests`) explicitly deferred to later tasks.
+
+**Files Created / Modified**
+
+- payments/build.gradle.kts — added actuator, micrometer-registry-prometheus,
+  springdoc 3.x, Testcontainers (junit-jupiter/postgresql/r2dbc 1.21.3 +
+  spring-boot-testcontainers); **removed spring-boot-starter-kafka(-test)**
+- payments/src/main/resources/application.yaml — R2DBC (payments-db),
+  spring.sql.init, app.gateway.decline-above, actuator, graceful shutdown
+- payments/src/main/resources/schema.sql — transactions (status
+  AUTHORIZED/DECLINED + reason). No data.sql (starts empty).
+- payments/src/main/kotlin/.../ — entities/TransactionEntity,
+  repositories/TransactionRepository, dto, gateway (PaymentGateway interface +
+  MockPaymentGateway), service (interface + DefaultPaymentsService),
+  controllers/PaymentsController, exceptions/PaymentsExceptionHandler,
+  config/OpenApiConfig
+- payments/src/test/kotlin/.../PaymentsAuthorizeTest.kt — 4 Testcontainers tests
+- payments/CLAUDE.md — module context
+
+**Summary**
+
+Authorize calls a PaymentGateway seam (only MockPaymentGateway today) and
+persists one transactions row per decision, then returns 200 AUTHORIZED or
+throws PaymentDeclinedException → 402 { status:"DECLINED", reason }. The mock
+rule (human-approved via AskUserQuestion) declines amounts above a configurable
+threshold (app.gateway.decline-above, default 500.00) with insufficient_funds,
+so the 402/payment-failed branch is demonstrable end-to-end.
+
+Verified the Inventory-style schema gap does NOT apply here: transactions is
+already documented and no flow ever reverses an AUTHORIZED payment (Payments
+never touches Kafka), so there is no reservations-like state/compensation table.
+
+**Potential Risks / Assumptions**
+
+- The mock decline-by-threshold rule is not in the contract; it is a
+  human-approved simulation to make the 402 path testable. The real gateway call
+  + circuit breaker (fallback 402 circuit_breaker_open) are a later task.
+- Request-level idempotency (processed_requests) intentionally not implemented;
+  a duplicated /authorize charges again.
+- Removed the Kafka starter from the skeleton: architecture states Payments has
+  no Kafka involvement at all — the starter was an incoherent leftover.
+- The service is deliberately NOT @Transactional: the single insert is atomic, a
+  transaction would span the (soon remote) gateway call, and it would roll back
+  the DECLINED row when the 402 exception is thrown.
+- Tests require Docker in CI.
+- payments-db CloudNativePG manifest + SPRING_R2DBC_* secret not yet created
+  (config repo).
+
+**Confidence**
+
+High — build and the 4 Testcontainers tests (real PostgreSQL) pass, both wire
+shapes (200/402) verified against contract §1.5.
+
+**Notes**
+
+Same JUnit 6 "must not return a value" pitfall avoided in the two WebTestClient
+tests (block bodies → Unit).
+
+---
+
 ### 2026-07-10 14:45
 
 **Agent**

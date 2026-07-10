@@ -1,3 +1,35 @@
+server:
+  port: 8080
+  shutdown: graceful
+
 spring:
   application:
     name: payments
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  r2dbc:
+    # Local-dev defaults; overridden by env from the payments-db secret in cluster.
+    url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/payments}
+    username: ${SPRING_R2DBC_USERNAME:payments}
+    password: ${SPRING_R2DBC_PASSWORD:payments}
+  sql:
+    init:
+      mode: always
+
+app:
+  gateway:
+    # Mock gateway rule (human-approved): amounts above this threshold are
+    # declined with insufficient_funds. The real gateway call + its circuit
+    # breaker are a later task.
+    decline-above: 500.00
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
