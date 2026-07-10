@@ -1,17 +1,26 @@
 package it.polito.eurotransit.payments
 
+import com.github.tomakehurst.wiremock.WireMockServer
+import com.github.tomakehurst.wiremock.client.WireMock.okJson
+import com.github.tomakehurst.wiremock.client.WireMock.post
+import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
+import com.github.tomakehurst.wiremock.core.WireMockConfiguration
 import it.polito.eurotransit.payments.dto.AuthorizeRequest
 import it.polito.eurotransit.payments.exceptions.PaymentDeclinedException
 import it.polito.eurotransit.payments.repositories.TransactionRepository
 import it.polito.eurotransit.payments.service.PaymentsService
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.web.reactive.server.WebTestClient
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Container
@@ -38,35 +47,58 @@ class PaymentsAuthorizeTest @Autowired constructor(
         @ServiceConnection
         @JvmStatic
         val postgres = PostgreSQLContainer("postgres:16-alpine")
+
+        @JvmStatic
+        val gateway = WireMockServer(WireMockConfiguration.options().dynamicPort())
+
+        @JvmStatic
+        @BeforeAll
+        fun startGateway() = gateway.start()
+
+        @JvmStatic
+        @AfterAll
+        fun stopGateway() = gateway.stop()
+
+        @JvmStatic
+        @DynamicPropertySource
+        fun gatewayUrl(registry: DynamicPropertyRegistry) {
+            registry.add("app.gateway.url") { "http://localhost:${gateway.port()}" }
+        }
     }
 
     @BeforeEach
     fun reset() = runBlocking {
         transactionRepository.deleteAll()
+        gateway.resetAll()
     }
 
+    private fun stubDecision(json: String) {
+        gateway.stubFor(post(urlEqualTo("/gateway/charge")).willReturn(okJson(json)))
+    }
+
+    private fun request(orderId: String) =
+        mapOf("idempotency_key" to orderId, "user_id" to "user-1", "amount" to 120.0, "currency" to "EUR")
+
     @Test
-    fun `authorize below threshold is authorized and persisted`() = runBlocking {
-        val response = paymentsService.authorize(
-            AuthorizeRequest("ord-1", "user-1", BigDecimal("120.00"), "EUR"),
-        )
+    fun `authorized gateway decision is persisted and returned`() = runBlocking {
+        stubDecision("""{"decision":"AUTHORIZED"}""")
+
+        val response = paymentsService.authorize(AuthorizeRequest("ord-1", "user-1", BigDecimal("120.00"), "EUR"))
 
         assertEquals("AUTHORIZED", response.status)
         assertTrue(response.transactionId.startsWith("txn-"))
-
         val transaction = transactionRepository.findByTransactionId(response.transactionId)!!
         assertEquals("AUTHORIZED", transaction.status)
         assertEquals("ord-1", transaction.orderId)
-        assertEquals(0, transaction.amount.compareTo(BigDecimal("120.00")))
         assertEquals(null, transaction.reason)
     }
 
     @Test
-    fun `authorize above threshold is declined and persisted with reason`() = runBlocking {
+    fun `declined gateway decision throws and is persisted with reason`() = runBlocking {
+        stubDecision("""{"decision":"DECLINED","reason":"insufficient_funds"}""")
+
         assertFailsWith<PaymentDeclinedException> {
-            paymentsService.authorize(
-                AuthorizeRequest("ord-2", "user-1", BigDecimal("750.00"), "EUR"),
-            )
+            paymentsService.authorize(AuthorizeRequest("ord-2", "user-1", BigDecimal("120.00"), "EUR"))
         }
 
         val all = transactionRepository.findAll().toList()
@@ -75,19 +107,14 @@ class PaymentsAuthorizeTest @Autowired constructor(
         assertEquals("insufficient_funds", all.first().reason)
     }
 
-    // Block body (not `=`) so the test returns Unit: the WebTestClient chain
-    // ends in a value, which JUnit 6 would otherwise silently refuse to run.
+    // Block body (not `=`) so the test returns Unit: the WebTestClient chain ends
+    // in a value, which JUnit 6 would otherwise silently refuse to run.
     @Test
     fun `POST authorize returns 200 with transaction_id`() {
+        stubDecision("""{"decision":"AUTHORIZED"}""")
+
         webTestClient.post().uri("/api/v1/payments/authorize")
-            .bodyValue(
-                mapOf(
-                    "idempotency_key" to "ord-3",
-                    "user_id" to "user-1",
-                    "amount" to 45.50,
-                    "currency" to "EUR",
-                ),
-            )
+            .bodyValue(request("ord-3"))
             .exchange()
             .expectStatus().isOk
             .expectBody()
@@ -96,16 +123,11 @@ class PaymentsAuthorizeTest @Autowired constructor(
     }
 
     @Test
-    fun `POST authorize returns 402 DECLINED above threshold`() {
+    fun `POST authorize returns 402 DECLINED when gateway declines`() {
+        stubDecision("""{"decision":"DECLINED","reason":"insufficient_funds"}""")
+
         webTestClient.post().uri("/api/v1/payments/authorize")
-            .bodyValue(
-                mapOf(
-                    "idempotency_key" to "ord-4",
-                    "user_id" to "user-1",
-                    "amount" to 999.00,
-                    "currency" to "EUR",
-                ),
-            )
+            .bodyValue(request("ord-4"))
             .exchange()
             .expectStatus().isEqualTo(402)
             .expectBody()

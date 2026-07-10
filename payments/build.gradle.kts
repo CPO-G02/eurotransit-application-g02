@@ -27,6 +27,8 @@ dependencies {
 	// springdoc 3.x is the Spring Boot 4 line (2.8.x targets Boot 3.x, where the
 	// Swagger UI does not serve under Framework 7).
 	implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:3.0.3")
+	implementation("io.github.resilience4j:resilience4j-spring-boot3:2.2.0")
+	implementation("io.github.resilience4j:resilience4j-kotlin:2.2.0")
 	implementation("io.projectreactor.kotlin:reactor-kotlin-extensions")
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
@@ -40,6 +42,7 @@ dependencies {
 	testImplementation("org.testcontainers:junit-jupiter:1.21.3")
 	testImplementation("org.testcontainers:postgresql:1.21.3")
 	testImplementation("org.testcontainers:r2dbc:1.21.3")
+	testImplementation("org.wiremock:wiremock-standalone:3.9.1")
 	testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
 	testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
