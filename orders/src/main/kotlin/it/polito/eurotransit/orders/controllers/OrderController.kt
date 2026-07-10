@@ -1,4 +1,4 @@
-package it.polito.eurotransit.orders.controller
+package it.polito.eurotransit.orders.controllers
 
 import it.polito.eurotransit.orders.dto.OrderConflictResponse
 import it.polito.eurotransit.orders.dto.OrderRequest

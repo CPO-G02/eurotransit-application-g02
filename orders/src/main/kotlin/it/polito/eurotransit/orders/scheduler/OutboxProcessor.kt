@@ -1,7 +1,7 @@
 package it.polito.eurotransit.orders.scheduler
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import it.polito.eurotransit.orders.repository.OutboxRepository
+import it.polito.eurotransit.orders.repositories.OutboxRepository
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service

@@ -2,10 +2,10 @@ package it.polito.eurotransit.orders
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import it.polito.eurotransit.orders.dto.OrderRequest
-import it.polito.eurotransit.orders.repository.OrderRepository
-import it.polito.eurotransit.orders.repository.OutboxRepository
-import it.polito.eurotransit.orders.repository.ProcessedRequestRepository
-import it.polito.eurotransit.orders.service.OrderService
+import it.polito.eurotransit.orders.repositories.OrderRepository
+import it.polito.eurotransit.orders.repositories.OutboxRepository
+import it.polito.eurotransit.orders.repositories.ProcessedRequestRepository
+import it.polito.eurotransit.orders.service.OrderServiceImpl 
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
@@ -21,7 +21,7 @@ class SagaIntegrationTest {
         val outboxRepo = mock<OutboxRepository>()
         val objectMapper = ObjectMapper()
 
-        val orderService = OrderService(orderRepo, requestRepo, outboxRepo, objectMapper)
+        val orderService = OrderServiceImpl(orderRepo, requestRepo, outboxRepo, objectMapper)
 
         val request = OrderRequest(
             idempotencyKey = "idem-999",

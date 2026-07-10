@@ -1,14 +1,15 @@
 package it.polito.eurotransit.orders.kafka
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import it.polito.eurotransit.orders.domain.Order
-import it.polito.eurotransit.orders.repository.OrderRepository
-import it.polito.eurotransit.orders.repository.OutboxRepository
-import it.polito.eurotransit.orders.repository.ProcessedEventRepository
+import it.polito.eurotransit.orders.entities.Order
+import it.polito.eurotransit.orders.repositories.OrderRepository
+import it.polito.eurotransit.orders.repositories.OutboxRepository
+import it.polito.eurotransit.orders.repositories.ProcessedEventRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.*
+import org.mockito.kotlin.argThat
 import org.mockito.kotlin.whenever
 
 class Stage4ConsumerTest {
@@ -26,6 +27,7 @@ class Stage4ConsumerTest {
         val message = """{"event_id": "evt-4", "order_id": "$orderId"}"""
         
         val existingOrder = mock(Order::class.java)
+        
         whenever(existingOrder.orderId).thenReturn(orderId)
         whenever(existingOrder.copy(status = "FAILED")).thenReturn(existingOrder)
         

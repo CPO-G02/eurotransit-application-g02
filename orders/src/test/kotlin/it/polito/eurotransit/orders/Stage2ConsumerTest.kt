@@ -3,8 +3,8 @@ package it.polito.eurotransit.orders.kafka
 import com.fasterxml.jackson.databind.ObjectMapper
 import it.polito.eurotransit.orders.client.PaymentClient
 import it.polito.eurotransit.orders.dto.PaymentAuthorizeResponse
-import it.polito.eurotransit.orders.repository.OutboxRepository
-import it.polito.eurotransit.orders.repository.ProcessedEventRepository
+import it.polito.eurotransit.orders.repositories.OutboxRepository
+import it.polito.eurotransit.orders.repositories.ProcessedEventRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.any

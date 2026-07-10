@@ -3,10 +3,10 @@ package it.polito.eurotransit.orders.kafka
 import com.fasterxml.jackson.databind.ObjectMapper
 import it.polito.eurotransit.orders.client.InventoryClient
 import it.polito.eurotransit.orders.dto.InventoryReserveRequest
-import it.polito.eurotransit.orders.domain.OutboxEntry
-import it.polito.eurotransit.orders.domain.ProcessedEvent
-import it.polito.eurotransit.orders.repository.OutboxRepository
-import it.polito.eurotransit.orders.repository.ProcessedEventRepository
+import it.polito.eurotransit.orders.entities.OutboxEntry
+import it.polito.eurotransit.orders.entities.ProcessedEvent
+import it.polito.eurotransit.orders.repositories.OutboxRepository
+import it.polito.eurotransit.orders.repositories.ProcessedEventRepository
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
