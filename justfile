@@ -1,7 +1,7 @@
 # EuroTransit Justfile - Quick commands for the team
 
 set shell := ["bash", "-c"]
-services := "catalog orders inventory payments notifications"
+services := "catalog orders inventory payments notifications payment-gateway-sim"
 
 # List all available commands (runs by default if you just type 'just')
 default:
