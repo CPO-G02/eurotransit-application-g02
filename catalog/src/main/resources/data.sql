@@ -1,5 +1,5 @@
 -- Seed data for Catalog (catalog-db). GENERATED FILE — do not edit by hand.
--- Regenerate with: python3 catalog/tools/generate_seed.py > catalog/src/main/resources/data.sql
+-- Regenerate with: python3 tools/generate_seed.py --target=catalog > catalog/src/main/resources/data.sql
 --
 -- Idempotent (ON CONFLICT DO NOTHING) so it can run on every startup via
 -- spring.sql.init without duplicating rows. Catalog is read-only and tolerant
