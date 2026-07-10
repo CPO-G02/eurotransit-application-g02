@@ -1,27 +1,43 @@
 package it.polito.eurotransit.orders.client
 
+import com.github.tomakehurst.wiremock.client.WireMock.*
+import com.github.tomakehurst.wiremock.junit5.WireMockTest
 import it.polito.eurotransit.orders.dto.PaymentAuthorizeRequest
-import it.polito.eurotransit.orders.dto.PaymentAuthorizeResponse
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.mockito.kotlin.any
-import org.mockito.kotlin.mock
-import org.mockito.kotlin.whenever
+import org.springframework.web.reactive.function.client.WebClient
+import java.math.BigDecimal
 
+@WireMockTest(httpPort = 8089)
 class PaymentClientTest {
 
+    private lateinit var client: PaymentClient
+
+    @BeforeEach
+    fun setup() {
+        val webClientBuilder = WebClient.builder()
+        client = PaymentClient(webClientBuilder, "http://localhost:8089")
+    }
+
     @Test
-    fun `fallbackPayment returns declined status when system is unavailable`() = runBlocking {
-        val client = mock<PaymentClient>()
-        
-        whenever(client.fallbackPayment(any(), any())).thenReturn(
-            PaymentAuthorizeResponse(null, "DECLINED", "payment_system_unavailable")
+    fun `fallbackPayment returns declined status and reason when system is unavailable`() = runBlocking {
+        stubFor(
+            post(urlEqualTo("/authorize"))
+                .willReturn(aResponse().withStatus(503))
         )
 
-        val request = mock<PaymentAuthorizeRequest>()
-        val result = client.fallbackPayment(request, RuntimeException("Test"))
+        val request = PaymentAuthorizeRequest(
+            idempotency_key = "ord-123", 
+            user_id = "user-1", 
+            amount = BigDecimal("50.00"), 
+            currency = "EUR"
+        )
         
-        assertEquals("DECLINED", result.status)
+        val fallbackResult = client.fallbackPayment(request, RuntimeException("Simulated Network Error"))
+        
+        assertEquals("DECLINED", fallbackResult.status)
+        assertEquals("payment_system_unavailable", fallbackResult.reason)
     }
 }

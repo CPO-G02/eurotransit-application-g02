@@ -3,6 +3,8 @@ server:
   shutdown: graceful
 
 spring:
+  jackson:
+    property-naming-strategy: SNAKE_CASE
   lifecycle:
     timeout-per-shutdown-phase: 30s
   application:

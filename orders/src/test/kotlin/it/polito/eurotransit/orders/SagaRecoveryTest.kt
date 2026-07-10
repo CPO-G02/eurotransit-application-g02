@@ -1,58 +1,54 @@
 package it.polito.eurotransit.orders
 
-import it.polito.eurotransit.orders.client.PaymentClient
-import it.polito.eurotransit.orders.domain.Order
-import it.polito.eurotransit.orders.repository.OrderRepository
+import com.fasterxml.jackson.databind.ObjectMapper
+import it.polito.eurotransit.orders.repository.OutboxRepository
+import it.polito.eurotransit.orders.domain.OutboxEntry // AQUEST ÉS L'IMPORT CORRECTE
 import it.polito.eurotransit.orders.scheduler.OutboxRelay
-import it.polito.eurotransit.orders.dto.PaymentAuthorizeResponse
-import kotlinx.coroutines.runBlocking
-import org.junit.jupiter.api.Assertions.assertEquals
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.mockito.kotlin.any
-import org.mockito.kotlin.mock
-import org.mockito.kotlin.whenever
-import java.math.BigDecimal
+import org.mockito.kotlin.*
+import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.kafka.support.SendResult
+import java.time.LocalDateTime
+import java.util.concurrent.CompletableFuture
 
 class SagaRecoveryTest {
 
-    private lateinit var paymentClient: PaymentClient
-    private lateinit var orderRepo: OrderRepository
+    private lateinit var outboxRepo: OutboxRepository
+    private lateinit var kafkaTemplate: KafkaTemplate<String, Any>
+    private val objectMapper = ObjectMapper()
     private lateinit var outboxRelay: OutboxRelay
 
     @BeforeEach
     fun setup() {
-        paymentClient = mock()
-        orderRepo = mock()
-        outboxRelay = mock()
+        outboxRepo = mock()
+        kafkaTemplate = mock()
+        outboxRelay = OutboxRelay(outboxRepo, kafkaTemplate, objectMapper)
     }
 
     @Test
-    fun `should recover pipeline when payment service goes from down to up`() = runBlocking {
-        val orderId = "ord-recovery-999"
+    fun `should process and publish pending messages from outbox`() = runTest {
+        val eventId = "evt-123"
+        val payload = """{"orderId": "ord-999", "status": "PENDING"}"""
         
-        val initialOrder = Order(
-            orderId = orderId, 
-            userId = "user-1",
-            userEmail = "marc@example.com",
-            trainId = "train-x",
-            seatClass = "standard",
-            quantity = 1,
-            amount = BigDecimal("50.00"),
-            currency = "EUR",
-            status = "INVENTORY_RESERVED"
+        // Ara fem servir OutboxEntry correctament
+        val pendingEntry = OutboxEntry(
+            eventId = eventId,
+            topic = "eurotransit.orders",
+            payload = payload,
+            createdAt = LocalDateTime.now(),
+            sentAt = null
         )
-        
-        whenever(orderRepo.findById(orderId)).thenReturn(initialOrder)
-        
-        whenever(paymentClient.authorizePayment(any())).thenThrow(RuntimeException("Payment Service Offline"))
 
-        val failedOrder = orderRepo.findById(orderId)
-        assertEquals("INVENTORY_RESERVED", failedOrder?.status)
-
-        val successResponse = PaymentAuthorizeResponse("tx-123", "AUTHORIZED", null)
-        whenever(paymentClient.authorizePayment(any())).thenReturn(successResponse)
+        whenever(outboxRepo.findPendingMessages(any())).thenReturn(listOf(pendingEntry))
+        
+        val future = mock<CompletableFuture<SendResult<String, Any>>>()
+        whenever(kafkaTemplate.send(any<String>(), any(), any())).thenReturn(future)
 
         outboxRelay.processPendingMessages()
+
+        verify(kafkaTemplate, times(1)).send(eq("eurotransit.orders"), eq(eventId), any())
+        verify(outboxRepo, times(1)).save(any())
     }
 }

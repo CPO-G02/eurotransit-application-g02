@@ -1,13 +1,16 @@
 package it.polito.eurotransit.orders.service
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import it.polito.eurotransit.orders.domain.Order
+import it.polito.eurotransit.orders.domain.OutboxEntry
 import it.polito.eurotransit.orders.domain.ProcessedRequest
 import it.polito.eurotransit.orders.dto.OrderRequest
 import it.polito.eurotransit.orders.repository.OrderRepository
+import it.polito.eurotransit.orders.repository.OutboxRepository
 import it.polito.eurotransit.orders.repository.ProcessedRequestRepository
-import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.LocalDateTime
 import java.util.UUID
 
 // kafka event dto for order-placed
@@ -23,7 +26,8 @@ data class OrderPlacedEvent(
 class OrderService(
     private val orderRepo: OrderRepository,
     private val requestRepo: ProcessedRequestRepository,
-    private val kafkaTemplate: KafkaTemplate<String, Any>
+    private val outboxRepo: OutboxRepository,
+    private val objectMapper: ObjectMapper
 ) {
 
     // create new order with level 1 idempotency check
@@ -41,7 +45,7 @@ class OrderService(
         return saveNewOrder(req)
     }
 
-    // save new order, register idempotency key, and emit kafka event
+    // save new order, register idempotency key, and emit outbox event
     private suspend fun saveNewOrder(req: OrderRequest): Order {
         val newOrderId = "ord-${UUID.randomUUID().toString().take(8)}"
         
@@ -74,8 +78,17 @@ class OrderService(
             quantity = savedOrder.quantity
         )
         
-        // emit event to kafka using orderId as the partition key
-        kafkaTemplate.send("eurotransit.order-placed", event.orderId, event)
+        // serialize event to JSON
+        val payloadStr = objectMapper.writeValueAsString(event)
+        
+        // save to outbox instead of sending directly to Kafka
+        val outboxEntry = OutboxEntry(
+            eventId = event.eventId,
+            topic = "eurotransit.order-placed",
+            payload = payloadStr,
+            createdAt = LocalDateTime.now()
+        )
+        outboxRepo.save(outboxEntry)
 
         return savedOrder
     }

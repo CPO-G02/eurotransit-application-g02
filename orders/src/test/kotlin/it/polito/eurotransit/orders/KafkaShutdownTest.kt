@@ -1,45 +1,33 @@
 package it.polito.eurotransit.orders
 
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
+import it.polito.eurotransit.orders.config.TestSimulators
+import kotlinx.coroutines.*
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.context.annotation.AnnotationConfigApplicationContext
-import org.springframework.stereotype.Component
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 class KafkaShutdownTest {
 
-    @Component
-    class KafkaConsumerSimulator {
-        val isProcessed = AtomicBoolean(false)
-        val latch = CountDownLatch(1)
-
-        fun consume() {
-            runBlocking {
-                delay(1000) 
-                isProcessed.set(true)
-                latch.countDown()
-            }
-        }
-    }
-
     @Test
-    fun `verify kafka message is processed during shutdown`() {
+    fun `verify simulated consumer completes even if Spring context is closed`() = runBlocking {
         val context = AnnotationConfigApplicationContext()
-        context.register(KafkaConsumerSimulator::class.java)
-        context.refresh()
-
-        val consumer = context.getBean(KafkaConsumerSimulator::class.java)
-
-        Thread { consumer.consume() }.start()
-
-        context.close()
-
-        val completed = consumer.latch.await(2, TimeUnit.SECONDS)
-        
-        assertTrue(completed && consumer.isProcessed.get(), "El missatge hauria d'haver estat processat")
+        try {
+            context.register(TestSimulators::class.java)
+            context.refresh()
+            
+            val consumer = context.getBean(TestSimulators.KafkaConsumerSimulator::class.java)
+            
+            val job = launch(Dispatchers.Default) { consumer.consume() }
+            
+            context.close()
+            
+            withTimeout(1000L) {
+                job.join()
+            }
+            
+            assertTrue(consumer.isProcessed.get(), "The simulated consumer task should have completed")
+        } finally {
+            if (context.isActive) context.close()
+        }
     }
 }
