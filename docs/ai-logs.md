@@ -5,6 +5,74 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-10 19:10
+
+**Agent**
+
+Claude (Opus 4.8) via Claude Code
+
+**Task**
+
+Implement the second circuit breaker from contract §1.5 — Payments → external
+gateway — and expose the gateway as a separate simulated HTTP service so the
+edge is a real network call and the breaker can be exercised (incl. by latency
+injection). Two separate commits.
+
+**Files Created / Modified**
+
+- (commit 1) payment-gateway-sim/ — new WebFlux service (no DB, no Kafka):
+  GatewayController `POST /gateway/charge` (decline-above rule migrated here +
+  X-Simulate-Delay-Ms / X-Simulate-Failure fault injection), DTOs, OpenApiConfig,
+  application.yaml, GatewaySimTest (4 tests); justfile registers the module.
+- (commit 2) payments/build.gradle.kts — + resilience4j-spring-boot3/kotlin
+  2.2.0, wiremock-standalone 3.9.1 (test)
+- payments/.../gateway/HttpPaymentGateway.kt — WebClient + programmatic
+  resilience4j (CircuitBreakerRegistry.executeSuspendFunction) + fallback →
+  circuit_breaker_open; **removed** MockPaymentGateway.kt
+- payments/src/main/resources/application.yaml — app.gateway.url/timeout,
+  resilience4j.circuitbreaker.payment-gateway, actuator circuitbreakers
+- payments/src/test/.../PaymentsAuthorizeTest.kt — reworked to drive decisions
+  from a WireMock gateway; PaymentGatewayCircuitBreakerTest.kt — new
+
+**Summary**
+
+The gateway is now a standalone service; Payments calls it over HTTP wrapped in
+a COUNT_BASED Resilience4j breaker that opens on failures AND on slow calls
+(slow-call-duration-threshold 2s), satisfying the chaos "latency injection"
+requirement — not only on exceptions. The WebClient responseTimeout (5s) sits
+above the slow-call threshold so slow calls register as slow rather than errors.
+On open (or any gateway failure/timeout) the fallback returns the contract's
+`circuit_breaker_open` (402), distinguishable from `insufficient_funds`. Chose
+the programmatic resilience4j-kotlin API over the annotation for reliable
+coroutine + fallback behavior. The 402 fallback reason follows the contract
+(§1.5/§2.4), not the initially-suggested PAYMENT_GATEWAY_UNAVAILABLE.
+
+**Potential Risks / Assumptions**
+
+- New service (payment-gateway-sim): architecture-design.md (config repo) should
+  be updated to describe the in-cluster gateway simulator (the gateway is
+  documented as an opaque external third party) — §19 doc reconciliation.
+- Deploy of the simulator (Helm/manifest, config repo) is deferred; it is
+  registered in the justfile but NOT in CI. Note: the CI values-update step uses
+  `yq .<service>.image.tag`, which breaks on the hyphenated name unless the key
+  is quoted — fix when wiring CI/deploy.
+- CB threshold values are a deliberate, justified choice (see plan), not library
+  defaults; the CB test overrides them with faster values to keep tests quick.
+- Tests require Docker (Testcontainers for the transactions DB).
+
+**Confidence**
+
+High — build + 7 payments tests + 4 simulator tests pass; the breaker is shown
+opening on both 503 failures and slow calls, with the circuit_breaker_open
+fallback.
+
+**Notes**
+
+Same JUnit 6 "must not return a value" pitfall avoided in the WebTestClient
+tests (block bodies → Unit).
+
+---
+
 ### 2026-07-10 17:30
 
 **Agent**
