@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS processed_events (
 -- outbox table for reliable message publishing
 CREATE TABLE IF NOT EXISTS outbox (
     id BIGSERIAL PRIMARY KEY,
-    event_id TEXT NOT NULL,
+    event_id TEXT NOT NULL UNIQUE,
     topic TEXT NOT NULL,
     payload JSONB NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),

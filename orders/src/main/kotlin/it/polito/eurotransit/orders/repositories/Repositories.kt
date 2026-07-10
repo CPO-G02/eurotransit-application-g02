@@ -1,8 +1,8 @@
-package it.polito.eurotransit.orders.repository
+package it.polito.eurotransit.orders.repositories
 
-import it.polito.eurotransit.orders.domain.Order
-import it.polito.eurotransit.orders.domain.ProcessedEvent
-import it.polito.eurotransit.orders.domain.ProcessedRequest
+import it.polito.eurotransit.orders.entities.Order
+import it.polito.eurotransit.orders.entities.ProcessedEvent
+import it.polito.eurotransit.orders.entities.ProcessedRequest
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
 import org.springframework.stereotype.Repository
 

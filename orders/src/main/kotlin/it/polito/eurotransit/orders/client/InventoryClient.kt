@@ -14,7 +14,7 @@ import org.springframework.web.reactive.function.client.awaitBody
 @Component
 class InventoryClient(
     webClientBuilder: WebClient.Builder,
-    @Value("\${inventory.service.url:http://inventory:8080}") private val inventoryUrl: String
+    @Value("\${app.inventory.url}") private val inventoryUrl: String
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val webClient = webClientBuilder.baseUrl(inventoryUrl).build()

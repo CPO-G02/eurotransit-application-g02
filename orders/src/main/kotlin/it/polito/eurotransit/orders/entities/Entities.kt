@@ -1,4 +1,4 @@
-package it.polito.eurotransit.orders.domain
+package it.polito.eurotransit.orders.entities
 
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table

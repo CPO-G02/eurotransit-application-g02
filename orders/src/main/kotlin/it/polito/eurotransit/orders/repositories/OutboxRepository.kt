@@ -1,6 +1,6 @@
-package it.polito.eurotransit.orders.repository
+package it.polito.eurotransit.orders.repositories
 
-import it.polito.eurotransit.orders.domain.OutboxEntry
+import it.polito.eurotransit.orders.entities.OutboxEntry
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
 import org.springframework.stereotype.Repository
