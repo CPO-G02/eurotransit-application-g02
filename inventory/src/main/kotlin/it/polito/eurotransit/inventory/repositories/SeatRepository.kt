@@ -9,6 +9,8 @@ import org.springframework.stereotype.Repository
 @Repository
 interface SeatRepository : CoroutineCrudRepository<SeatEntity, Long> {
 
+    suspend fun findByTrainIdAndSeatClass(trainId: String, seatClass: String): SeatEntity?
+
     // Guard and decrement in one atomic UPDATE so concurrent requests can never
     // oversell. Returns 1 when reserved, 0 when insufficient seats.
     @Modifying
