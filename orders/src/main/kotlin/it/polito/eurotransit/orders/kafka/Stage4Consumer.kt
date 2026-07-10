@@ -10,8 +10,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
-import java.time.Instant
-import java.util.UUID
 
 @Component
 class Stage4Consumer(
@@ -43,18 +41,10 @@ class Stage4Consumer(
             orderRepo.save(failedOrder)
 
             // save failure notification to outbox
-            val nextEventId = "evt-${UUID.randomUUID()}"
-            val nextPayload = mapOf(
-                "event_id" to nextEventId,
-                "event_timestamp" to Instant.now().toString(),
-                "order_id" to failedOrder.orderId,
-                "reservation_id" to event["reservation_id"]?.asText(),
-                "reason" to (event["reason"]?.asText() ?: "PAYMENT_REJECTED"),
-                "user_email" to failedOrder.userEmail
-            )
+            val nextPayload = mapOf("order_id" to orderId, "status" to "FAILED")
             outboxRepo.save(OutboxEntry(
-                eventId = nextEventId,
-                topic = "eurotransit.order-failed",
+                eventId = "evt-$orderId-stage4",
+                topic = "order-failed",
                 payload = objectMapper.writeValueAsString(nextPayload)
             ))
 
