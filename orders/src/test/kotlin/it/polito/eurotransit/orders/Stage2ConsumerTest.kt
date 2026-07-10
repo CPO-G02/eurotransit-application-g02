@@ -13,9 +13,9 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.Test
-import org.mockito.ArgumentCaptor
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.*
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.whenever
 import java.math.BigDecimal
 
@@ -62,9 +62,9 @@ class Stage2ConsumerTest {
         consumer.consumeInventoryReserved(message)
         
         verify(orderRepo).save(argThat { order -> order.status == "RESERVED" })
-        val outboxCaptor = ArgumentCaptor.forClass(OutboxEntry::class.java)
+        val outboxCaptor = argumentCaptor<OutboxEntry>()
         verify(outboxRepo).save(outboxCaptor.capture())
-        val payload = objectMapper.readTree(outboxCaptor.value.payload)
+        val payload = objectMapper.readTree(outboxCaptor.firstValue.payload)
         assertTrue(payload["event_id"].asText().startsWith("evt-"))
         assertTrue(payload["event_timestamp"].asText().isNotBlank())
         assertEquals("tx-1", payload["transaction_id"].asText())
