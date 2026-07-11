@@ -5,6 +5,145 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-10 19:10
+
+**Agent**
+
+Claude (Opus 4.8) via Claude Code
+
+**Task**
+
+Implement the second circuit breaker from contract §1.5 — Payments → external
+gateway — and expose the gateway as a separate simulated HTTP service so the
+edge is a real network call and the breaker can be exercised (incl. by latency
+injection). Two separate commits.
+
+**Files Created / Modified**
+
+- (commit 1) payment-gateway-sim/ — new WebFlux service (no DB, no Kafka):
+  GatewayController `POST /gateway/charge` (decline-above rule migrated here +
+  X-Simulate-Delay-Ms / X-Simulate-Failure fault injection), DTOs, OpenApiConfig,
+  application.yaml, GatewaySimTest (4 tests); justfile registers the module.
+- (commit 2) payments/build.gradle.kts — + resilience4j-spring-boot3/kotlin
+  2.2.0, wiremock-standalone 3.9.1 (test)
+- payments/.../gateway/HttpPaymentGateway.kt — WebClient + programmatic
+  resilience4j (CircuitBreakerRegistry.executeSuspendFunction) + fallback →
+  circuit_breaker_open; **removed** MockPaymentGateway.kt
+- payments/src/main/resources/application.yaml — app.gateway.url/timeout,
+  resilience4j.circuitbreaker.payment-gateway, actuator circuitbreakers
+- payments/src/test/.../PaymentsAuthorizeTest.kt — reworked to drive decisions
+  from a WireMock gateway; PaymentGatewayCircuitBreakerTest.kt — new
+
+**Summary**
+
+The gateway is now a standalone service; Payments calls it over HTTP wrapped in
+a COUNT_BASED Resilience4j breaker that opens on failures AND on slow calls
+(slow-call-duration-threshold 2s), satisfying the chaos "latency injection"
+requirement — not only on exceptions. The WebClient responseTimeout (5s) sits
+above the slow-call threshold so slow calls register as slow rather than errors.
+On open (or any gateway failure/timeout) the fallback returns the contract's
+`circuit_breaker_open` (402), distinguishable from `insufficient_funds`. Chose
+the programmatic resilience4j-kotlin API over the annotation for reliable
+coroutine + fallback behavior. The 402 fallback reason follows the contract
+(§1.5/§2.4), not the initially-suggested PAYMENT_GATEWAY_UNAVAILABLE.
+
+**Potential Risks / Assumptions**
+
+- New service (payment-gateway-sim): architecture-design.md (config repo) should
+  be updated to describe the in-cluster gateway simulator (the gateway is
+  documented as an opaque external third party) — §19 doc reconciliation.
+- Deploy of the simulator (Helm/manifest, config repo) is deferred; it is
+  registered in the justfile but NOT in CI. Note: the CI values-update step uses
+  `yq .<service>.image.tag`, which breaks on the hyphenated name unless the key
+  is quoted — fix when wiring CI/deploy.
+- CB threshold values are a deliberate, justified choice (see plan), not library
+  defaults; the CB test overrides them with faster values to keep tests quick.
+- Tests require Docker (Testcontainers for the transactions DB).
+
+**Confidence**
+
+High — build + 7 payments tests + 4 simulator tests pass; the breaker is shown
+opening on both 503 failures and slow calls, with the circuit_breaker_open
+fallback.
+
+**Notes**
+
+Same JUnit 6 "must not return a value" pitfall avoided in the WebTestClient
+tests (block bodies → Unit).
+
+---
+
+### 2026-07-10 17:30
+
+**Agent**
+
+Claude (Opus 4.8) via Claude Code
+
+**Task**
+
+Implement the Payments service from scratch: the synchronous `POST
+/api/v1/payments/authorize` endpoint (contract §1.5), backed by its own
+`payments-db`. Circuit breaker (Payments→gateway) and request-level idempotency
+(`processed_requests`) explicitly deferred to later tasks.
+
+**Files Created / Modified**
+
+- payments/build.gradle.kts — added actuator, micrometer-registry-prometheus,
+  springdoc 3.x, Testcontainers (junit-jupiter/postgresql/r2dbc 1.21.3 +
+  spring-boot-testcontainers); **removed spring-boot-starter-kafka(-test)**
+- payments/src/main/resources/application.yaml — R2DBC (payments-db),
+  spring.sql.init, app.gateway.decline-above, actuator, graceful shutdown
+- payments/src/main/resources/schema.sql — transactions (status
+  AUTHORIZED/DECLINED + reason). No data.sql (starts empty).
+- payments/src/main/kotlin/.../ — entities/TransactionEntity,
+  repositories/TransactionRepository, dto, gateway (PaymentGateway interface +
+  MockPaymentGateway), service (interface + DefaultPaymentsService),
+  controllers/PaymentsController, exceptions/PaymentsExceptionHandler,
+  config/OpenApiConfig
+- payments/src/test/kotlin/.../PaymentsAuthorizeTest.kt — 4 Testcontainers tests
+- payments/CLAUDE.md — module context
+
+**Summary**
+
+Authorize calls a PaymentGateway seam (only MockPaymentGateway today) and
+persists one transactions row per decision, then returns 200 AUTHORIZED or
+throws PaymentDeclinedException → 402 { status:"DECLINED", reason }. The mock
+rule (human-approved via AskUserQuestion) declines amounts above a configurable
+threshold (app.gateway.decline-above, default 500.00) with insufficient_funds,
+so the 402/payment-failed branch is demonstrable end-to-end.
+
+Verified the Inventory-style schema gap does NOT apply here: transactions is
+already documented and no flow ever reverses an AUTHORIZED payment (Payments
+never touches Kafka), so there is no reservations-like state/compensation table.
+
+**Potential Risks / Assumptions**
+
+- The mock decline-by-threshold rule is not in the contract; it is a
+  human-approved simulation to make the 402 path testable. The real gateway call
+  + circuit breaker (fallback 402 circuit_breaker_open) are a later task.
+- Request-level idempotency (processed_requests) intentionally not implemented;
+  a duplicated /authorize charges again.
+- Removed the Kafka starter from the skeleton: architecture states Payments has
+  no Kafka involvement at all — the starter was an incoherent leftover.
+- The service is deliberately NOT @Transactional: the single insert is atomic, a
+  transaction would span the (soon remote) gateway call, and it would roll back
+  the DECLINED row when the 402 exception is thrown.
+- Tests require Docker in CI.
+- payments-db CloudNativePG manifest + SPRING_R2DBC_* secret not yet created
+  (config repo).
+
+**Confidence**
+
+High — build and the 4 Testcontainers tests (real PostgreSQL) pass, both wire
+shapes (200/402) verified against contract §1.5.
+
+**Notes**
+
+Same JUnit 6 "must not return a value" pitfall avoided in the two WebTestClient
+tests (block bodies → Unit).
+
+---
+
 ### 2026-07-10 14:45
 
 **Agent**

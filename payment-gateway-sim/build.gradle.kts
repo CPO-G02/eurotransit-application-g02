@@ -19,30 +19,16 @@ repositories {
 }
 
 dependencies {
-	// No Kafka starter on purpose: Payments has no Kafka involvement at all
-	// (no consumer, no producer, no outbox) per the architecture design.
-	implementation("org.springframework.boot:spring-boot-starter-data-r2dbc")
+	// Simulated external payment gateway: WebFlux only, no DB and no Kafka.
 	implementation("org.springframework.boot:spring-boot-starter-webflux")
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
-	// springdoc 3.x is the Spring Boot 4 line (2.8.x targets Boot 3.x, where the
-	// Swagger UI does not serve under Framework 7).
 	implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:3.0.3")
-	implementation("io.github.resilience4j:resilience4j-spring-boot3:2.2.0")
-	implementation("io.github.resilience4j:resilience4j-kotlin:2.2.0")
 	implementation("io.projectreactor.kotlin:reactor-kotlin-extensions")
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
 	implementation("tools.jackson.module:jackson-module-kotlin")
-	runtimeOnly("org.postgresql:postgresql")
-	runtimeOnly("org.postgresql:r2dbc-postgresql")
 	runtimeOnly("io.micrometer:micrometer-registry-prometheus")
-	testImplementation("org.springframework.boot:spring-boot-starter-data-r2dbc-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-webflux-test")
-	testImplementation("org.springframework.boot:spring-boot-testcontainers")
-	testImplementation("org.testcontainers:junit-jupiter:1.21.3")
-	testImplementation("org.testcontainers:postgresql:1.21.3")
-	testImplementation("org.testcontainers:r2dbc:1.21.3")
-	testImplementation("org.wiremock:wiremock-standalone:3.9.1")
 	testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
 	testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
