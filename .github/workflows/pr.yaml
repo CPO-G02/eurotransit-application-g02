@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - dev
 
 jobs:
   detect-changes:
@@ -18,11 +19,11 @@ jobs:
           # output changed services as json
           list-tags: 'json'
           filters: |
-            catalog: 'catalog/**'
-            orders: 'orders/**'
-            inventory: 'inventory/**'
-            payments: 'payments/**'
-            notifications: 'notifications/**'
+            catalog: 'backend/catalog/**'
+            orders: 'backend/orders/**'
+            inventory: 'backend/inventory/**'
+            payments: 'backend/payments/**'
+            notifications: 'backend/notifications/**'
 
   test:
     needs: detect-changes
@@ -43,7 +44,7 @@ jobs:
           
       - name: build and test
         run: |
-          cd ${{ matrix.service }}
+          cd backend/${{ matrix.service }}
           chmod +x gradlew
           ./gradlew build
           ./gradlew test

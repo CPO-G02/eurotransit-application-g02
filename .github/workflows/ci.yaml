@@ -6,7 +6,7 @@ on:
       - main
       - dev
       - test-ci-pipelines
-
+  
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
@@ -20,11 +20,11 @@ jobs:
           # output changed services as json
           list-tags: 'json'
           filters: |
-            catalog: 'catalog/**'
-            orders: 'orders/**'
-            inventory: 'inventory/**'
-            payments: 'payments/**'
-            notifications: 'notifications/**'
+            catalog: 'backend/catalog/**'
+            orders: 'backend/orders/**'
+            inventory: 'backend/inventory/**'
+            payments: 'backend/payments/**'
+            notifications: 'backend/notifications/**'
 
   build-and-deploy:
     needs: detect-changes
@@ -49,7 +49,7 @@ jobs:
       # run tests
       - name: build and test
         run: |
-          cd ${{ matrix.service }}
+          cd backend/${{ matrix.service }}
           chmod +x gradlew
           ./gradlew build
           ./gradlew test
@@ -69,7 +69,7 @@ jobs:
           tag="${IMAGE_TAG:0:7}"
           image="${{ secrets.ACR_LOGIN_SERVER }}/eurotransit-${{ matrix.service }}:$tag"
           
-          docker build -t $image ./${{ matrix.service }}
+          docker build -t $image ./backend/${{ matrix.service }}
           docker push $image
 
       # checkout config

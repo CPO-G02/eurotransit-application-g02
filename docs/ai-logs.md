@@ -346,3 +346,54 @@ High — compiles, unit tests and a real DB-backed end-to-end run all pass.
 Naming inconsistency across project docs: ai-guidelines.md §16 uses ai-logs.md
 (this file), while dod.md / the architecture app-repo structure reference
 agent-log.md. Team should converge on one name.
+
+---
+
+### 2026-07-11 13:15
+
+**Agent**
+
+Codex
+
+**Task**
+
+Refactor the application repository layout so backend services live under a
+single `backend/` directory.
+
+**Files Modified**
+
+- backend/catalog/** moved from catalog/**
+- backend/inventory/** moved from inventory/**
+- backend/notifications/** moved from notifications/**
+- backend/orders/** moved from orders/**
+- backend/payments/** moved from payments/**
+- backend/payment-gateway-sim/** moved from payment-gateway-sim/**
+- .github/workflows/ci.yaml
+- .github/workflows/pr.yaml
+- justfile
+- README.md
+- docs/ai-logs.md
+
+**Summary**
+
+Moved all backend services under `backend/` while keeping each microservice as
+an independent Gradle project. Updated GitHub Actions path filters, build/test
+working directories, Docker build contexts, and local just commands to use the
+new layout. The frontend, docs, and tools directories remain at repository root.
+
+**Potential Risks**
+
+- CI path changes need validation in GitHub Actions after the branch is pushed.
+- The configuration repository did not contain application filesystem path
+  references in the inspected files, so no config repo changes were made.
+- Local commands now expect service names relative to `backend/`.
+
+**Confidence**
+
+Medium — this is a filesystem-only refactor and no package names changed, but
+the user explicitly requested not to run tests.
+
+**Notes**
+
+Kubernetes service names, image repository names, API paths, database names, and
+Kafka topics were intentionally left unchanged.
