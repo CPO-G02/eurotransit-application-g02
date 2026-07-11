@@ -5,6 +5,81 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-11 18:00
+
+**Agent**
+
+Claude (Opus 4.8) via Claude Code
+
+**Task**
+
+Add distributed JWT validation to Payments (architecture pattern B) so
+`POST /api/v1/payments/authorize` requires a valid Bearer token, AND make Orders'
+`PaymentClient` forward a service-account token so Stage 2 keeps working under
+enforcement — matching what Inventory + Orders→Inventory already do.
+
+**Files Modified**
+
+- backend/payments/build.gradle.kts (+ oauth2-resource-server, + spring-security-test)
+- backend/payments/src/main/kotlin/.../config/SecurityConfig.kt (new)
+- backend/payments/src/main/kotlin/.../config/JwtAudienceValidator.kt (new)
+- backend/payments/src/main/resources/application.yaml (issuer-uri, audience)
+- backend/payments/src/test/kotlin/.../SecurityConfigTest.kt (new)
+- backend/payments/src/test/kotlin/.../PaymentsAuthorizeTest.kt (mock decoder + token)
+- backend/payments/src/test/kotlin/.../PaymentGatewayCircuitBreakerTest.kt (mock decoder)
+- backend/payments/CLAUDE.md
+- backend/orders/src/main/kotlin/.../client/PaymentClient.kt (forward service token)
+- backend/orders/src/test/kotlin/.../PaymentClientTest.kt (bearer-token test)
+
+**Summary**
+
+Payments: mirrored Inventory's resource-server setup into the payments package.
+`SecurityConfig` protects `/api/v1/payments/**` (`authenticated`), keeps actuator
+and Swagger open, and validates JWTs locally against Keycloak's JWKS
+(`issuer-uri`) with an audience check (`JwtAudienceValidator`,
+`app.security.jwt.audience` default `payments`). The `jwtDecoder` bean fetches
+JWKS at startup, so every `@SpringBootTest` mocks `ReactiveJwtDecoder`; endpoint
+tests send `Bearer test-token` with a stubbed decode returning a Jwt carrying
+`aud=payments`.
+
+Orders: `PaymentClient` now applies the same `bearerTokenFilter` as
+`InventoryClient`, reusing the existing `ServiceTokenProvider` (one `orders-service`
+client-credentials token for both edges, gated by the shared
+`app.security.service-token.*` toggle, default off — the config key was renamed
+from `...service-token.inventory.*` since it now serves both edges). Added a
+`PaymentClientTest` asserting the `Bearer <token>` header reaches `/authorize`.
+
+Built on a fresh branch off `dev` (which already has the security infra merged).
+Payments build green (8 tests, 0 skipped); Orders build green (incl. the 2
+PaymentClient tests).
+
+**Potential Risks**
+
+- **Keycloak config (required for enforcement):** the `orders-service` token's
+  `aud` must contain `payments` (audience mapper / client scope) or Stage 2 401s.
+  Infra, not code.
+- The service-token config was renamed `app.security.service-token.inventory.*` →
+  `app.security.service-token.*` (env `INVENTORY_SERVICE_TOKEN_ENABLED` →
+  `SERVICE_TOKEN_ENABLED`) since one orders-service token now serves both the
+  Inventory and Payments edges. No config-repo references existed, so the rename
+  is self-contained.
+- Config repo: `PAYMENTS_JWT_AUDIENCE` / `KEYCLOAK_ISSUER_URI` env wiring in the
+  Payments Deployment/values not added here.
+
+**Confidence**
+
+High — both services build with tests green; inbound 401-without-token proven and
+the Orders bearer-token forwarding asserted. End-to-end enforcement additionally
+depends on the flagged Keycloak audience config.
+
+**Notes**
+
+`dev` already carries the shared security infra (`ServiceTokenProvider`,
+`InventoryClient` token filter, oauth2 deps), so this change only added the
+Payments resource server and the missing Payments edge on `PaymentClient`.
+
+---
+
 ### 2026-07-10 19:10
 
 **Agent**
