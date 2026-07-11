@@ -6,10 +6,6 @@ on:
       - main
       - dev
       - test-ci-pipelines
-  pull_request:
-    branches:
-      - main
-      - dev
   
 jobs:
   detect-changes:
