@@ -20,10 +20,10 @@ class ServiceTokenProvider(
     @Value("\${app.security.service-token.inventory.token-uri:}") private val tokenUri: String,
     @Value("\${app.security.service-token.inventory.client-id:orders-service}") private val clientId: String,
     @Value("\${app.security.service-token.inventory.client-secret:}") private val clientSecret: String,
-    @Value("\${app.security.service-token.inventory.scope:}") private val scope: String
+    @Value("\${app.security.service-token.inventory.scope:}") private val scope: String,
+    webClientBuilder: WebClient.Builder = WebClient.builder()
 ) {
-    private val webClient = WebClient.builder().build()
-
+    private val webClient = webClientBuilder.build()
     @Volatile
     private var cachedToken: CachedServiceToken? = null
 
