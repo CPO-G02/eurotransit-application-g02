@@ -5,6 +5,89 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-10 14:45
+
+**Agent**
+
+Claude (Opus 4.8) via Claude Code
+
+**Task**
+
+Implement the Inventory service from scratch: the synchronous `POST /reserve`
+endpoint (contract §1.4) and the Kafka compensation consumer for
+`eurotransit.order-failed` (contract §2.6), plus the authoritative `inventory-db`
+schema and seed and an integration test suite. Request-level idempotency
+(`processed_requests`) deliberately deferred to a later task.
+
+**Files Created / Modified**
+
+- inventory/build.gradle.kts — added actuator, micrometer-registry-prometheus,
+  springdoc 3.x (coherence with Catalog), and Testcontainers
+  (junit-jupiter/postgresql/r2dbc 1.21.3 + spring-boot-testcontainers) for tests
+- inventory/src/main/resources/application.yaml — R2DBC (inventory-db),
+  spring.sql.init, Kafka consumer (String deserializer), actuator, graceful shutdown
+- inventory/src/main/resources/schema.sql — seats (CHECK available >= 0, unique
+  train/class) and reservations (status RESERVED/RELEASED)
+- inventory/src/main/resources/data.sql — generated authoritative seat seed
+- inventory/src/main/kotlin/.../ — entities (SeatEntity, ReservationEntity),
+  repositories (SeatRepository atomic reserve/release, ReservationRepository
+  markReleased), dto, service (interface + DefaultInventoryService),
+  controllers/InventoryController, exceptions/InventoryExceptionHandler,
+  config/OpenApiConfig, kafka/OrderFailedConsumer
+- inventory/src/test/kotlin/.../InventoryReserveTest.kt — 7 Testcontainers tests
+- inventory/CLAUDE.md — module context
+- tools/generate_seed.py — moved from catalog/tools/ (now a shared repo-root
+  tool), extended with --target=inventory
+- catalog/src/main/resources/data.sql — regenerated (header path only)
+
+**Summary**
+
+Never-oversell is guaranteed by a single atomic conditional UPDATE
+(`SET available = available - :qty WHERE available >= :qty`), not read-then-write.
+A `reservations` table persists what each reservation held, because the
+order-failed event carries only `reservation_id`; its status (RESERVED→RELEASED,
+flipped atomically) makes compensation idempotent under Kafka redelivery without
+needing `processed_events` yet. Both were human-approved over a documented schema
+gap (the docs list seats/processed_requests/processed_events but no reservations
+table, and the order-failed payload lacks train_id/seat_class/quantity). The seed
+generator was recognized as a shared tool, moved to repo-root `tools/`, and
+extended to emit Inventory's seat seed from the same source as Catalog so
+train_ids match by construction; one run/class is pinned to 5 seats for the
+concurrency test.
+
+**Verification**
+
+`./gradlew clean test` — 7/7 pass against a real PostgreSQL (Testcontainers
+postgres:16-alpine), including "10 concurrent reserves on 5 seats" (exactly 5
+succeed, availability ends at 0) and compensation idempotency on redelivery.
+Requires a running Docker daemon.
+
+**Potential Risks / Assumptions**
+
+- The `reservations` table is an approved addition not yet reflected in
+  architecture-design.md / eurotransit-contract.md (config repo) — docs should be
+  reconciled.
+- Request-level idempotency (`processed_requests`) intentionally not implemented;
+  a duplicate /reserve currently reserves again.
+- Tests require Docker in CI; a pipeline without a Docker daemon will fail them.
+- OrderFailedConsumer injects the Jackson 3 (tools.jackson) ObjectMapper —
+  exercised by the tests' context load, but new on Boot 4.
+- inventory-db CloudNativePG manifest + SPRING_R2DBC_* secret not yet created
+  (config repo).
+
+**Confidence**
+
+High — the full integration suite passes against real Postgres and the
+concurrency invariant is demonstrated directly.
+
+**Notes**
+
+Avoided the JUnit 6 "test method must not return a value" pitfall (which silently
+skips such tests): the two WebTestClient tests use block bodies so they return
+Unit. This is the same trap found earlier in the orders test suite.
+
+---
+
 ### 2026-07-09 18:24
 
 **Agent**
