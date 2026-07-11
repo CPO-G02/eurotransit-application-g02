@@ -397,3 +397,59 @@ the user explicitly requested not to run tests.
 
 Kubernetes service names, image repository names, API paths, database names, and
 Kafka topics were intentionally left unchanged.
+
+---
+
+### 2026-07-11 14:30
+
+**Agent**
+
+Codex
+
+**Task**
+
+Implement Keycloak JWT validation for Orders and Inventory, excluding Payments per human instruction.
+
+**Files Modified**
+
+- backend/orders/build.gradle.kts
+- backend/orders/src/main/resources/application.yaml
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/config/JwtAudienceValidator.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/config/SecurityConfig.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/client/ServiceTokenProvider.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/client/InventoryClient.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/JwtAudienceValidatorTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/SecurityConfigTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/InventoryClientTest.kt
+- backend/inventory/build.gradle.kts
+- backend/inventory/src/main/resources/application.yaml
+- backend/inventory/src/main/kotlin/it/polito/eurotransit/inventory/config/JwtAudienceValidator.kt
+- backend/inventory/src/main/kotlin/it/polito/eurotransit/inventory/config/SecurityConfig.kt
+- backend/inventory/src/test/kotlin/it/polito/eurotransit/inventory/JwtAudienceValidatorTest.kt
+- backend/inventory/src/test/kotlin/it/polito/eurotransit/inventory/SecurityConfigTest.kt
+- backend/inventory/src/test/kotlin/it/polito/eurotransit/inventory/InventoryReserveTest.kt
+
+**Summary**
+
+Orders now validates Keycloak-issued JWTs on `/api/v1/orders/**` with issuer and
+audience validation. Inventory now validates Keycloak-issued service-to-service
+JWTs on `/reserve`. Orders can obtain a client-credentials token for Inventory
+and attaches it as a Bearer token when calling Inventory. Catalog remains public
+and Notifications has no public HTTP API to protect in this scope.
+
+**Potential Risks**
+
+- Payments service-to-service JWT is intentionally excluded by human instruction,
+  even though the architecture and contract include it as a future requirement.
+- Runtime success depends on the Keycloak realm, audiences, and the
+  `orders-service-client` Kubernetes Secret matching the configured values.
+- Tests were not run by Codex because the human requested to run them locally.
+
+**Confidence**
+
+Medium — implementation follows the documented security model for Orders and
+Inventory, but it still needs local and CI verification.
+
+**Notes**
+
+No secrets were committed. Kafka events remain unchanged and do not carry JWTs.
