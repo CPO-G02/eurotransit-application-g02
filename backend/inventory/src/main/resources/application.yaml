@@ -5,6 +5,11 @@ server:
 spring:
   application:
     name: inventory
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:https://g02.cpo2026.it/auth/realms/eurotransit}
   lifecycle:
     timeout-per-shutdown-phase: 30s
   r2dbc:
@@ -24,6 +29,9 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 app:
+  security:
+    jwt:
+      audience: ${INVENTORY_JWT_AUDIENCE:inventory}
   kafka:
     topics:
       order-failed: eurotransit.order-failed
