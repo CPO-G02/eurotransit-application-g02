@@ -82,6 +82,17 @@ class InventoryReserveTest @Autowired constructor(
     }
 
     @Test
+    fun `reserve with a non-positive quantity never increases availability`() = runBlocking {
+        seatRepository.save(SeatEntity(trainId = "TR-N", seatClass = "standard", available = 5))
+
+        assertFailsWith<InsufficientSeatsException> {
+            inventoryService.reserve(ReserveRequest("ord-n", "TR-N", "standard", -3))
+        }
+
+        assertEquals(5, seatRepository.findByTrainIdAndSeatClass("TR-N", "standard")!!.available)
+    }
+
+    @Test
     fun `10 concurrent reserves on 5 seats never oversell`() = runBlocking {
         seatRepository.save(SeatEntity(trainId = "TR-C", seatClass = "business", available = 5))
 

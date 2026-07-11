@@ -12,7 +12,9 @@ interface SeatRepository : CoroutineCrudRepository<SeatEntity, Long> {
     suspend fun findByTrainIdAndSeatClass(trainId: String, seatClass: String): SeatEntity?
 
     // Guard and decrement in one atomic UPDATE so concurrent requests can never
-    // oversell. Returns 1 when reserved, 0 when insufficient seats.
+    // oversell. The `:quantity > 0` guard stops a non-positive quantity from
+    // flipping the subtraction into an increase of availability. Returns 1 when
+    // reserved, 0 when insufficient seats (or an invalid quantity).
     @Modifying
     @Query(
         """
@@ -20,6 +22,7 @@ interface SeatRepository : CoroutineCrudRepository<SeatEntity, Long> {
         SET available = available - :quantity
         WHERE train_id = :trainId
           AND seat_class = :seatClass
+          AND :quantity > 0
           AND available >= :quantity
         """,
     )

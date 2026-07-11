@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS reservations (
     order_id       VARCHAR(64) NOT NULL,
     train_id       VARCHAR(64) NOT NULL,
     seat_class     VARCHAR(32) NOT NULL,
-    quantity       INTEGER     NOT NULL,
+    quantity       INTEGER     NOT NULL CHECK (quantity > 0),
     status         VARCHAR(16) NOT NULL CHECK (status IN ('RESERVED', 'RELEASED')),
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
