@@ -36,8 +36,51 @@ class PaymentClientTest {
         )
         
         val fallbackResult = client.fallbackPayment(request, RuntimeException("Simulated Network Error"))
-        
+
         assertEquals("DECLINED", fallbackResult.status)
         assertEquals("payment_system_unavailable", fallbackResult.reason)
+    }
+
+    @Test
+    fun `authorizePayment sends service account bearer token when enabled`() = runBlocking {
+        val tokenProvider = ServiceTokenProvider(
+            enabled = true,
+            tokenUri = "http://localhost:8089/token",
+            clientId = "orders-service",
+            clientSecret = "test-secret",
+            scope = "",
+        )
+        val client = PaymentClient(WebClient.builder(), "http://localhost:8089", tokenProvider)
+
+        val request = PaymentAuthorizeRequest(
+            idempotency_key = "ord-123",
+            user_id = "user-1",
+            amount = BigDecimal("50.00"),
+            currency = "EUR",
+        )
+
+        stubFor(
+            post(urlEqualTo("/token"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""{"access_token":"service-token","expires_in":60}"""),
+                ),
+        )
+        stubFor(
+            post(urlEqualTo("/authorize"))
+                .withHeader("Authorization", equalTo("Bearer service-token"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""{"transaction_id":"txn-1","status":"AUTHORIZED"}"""),
+                ),
+        )
+
+        val response = client.authorizePayment(request)
+
+        assertEquals("AUTHORIZED", response.status)
     }
 }

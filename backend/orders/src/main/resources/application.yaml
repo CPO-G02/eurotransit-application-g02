@@ -60,13 +60,13 @@ app:
   security:
     jwt:
       audience: ${ORDERS_JWT_AUDIENCE:orders}
+    # One orders-service token for all outbound sync calls (Inventory + Payments).
     service-token:
-      inventory:
-        enabled: ${INVENTORY_SERVICE_TOKEN_ENABLED:false}
-        token-uri: ${KEYCLOAK_TOKEN_URI:https://g02.cpo2026.it/auth/realms/eurotransit/protocol/openid-connect/token}
-        client-id: ${ORDERS_SERVICE_CLIENT_ID:orders-service}
-        client-secret: ${ORDERS_SERVICE_CLIENT_SECRET:}
-        scope: ${ORDERS_SERVICE_TOKEN_SCOPE:}
+      enabled: ${SERVICE_TOKEN_ENABLED:false}
+      token-uri: ${KEYCLOAK_TOKEN_URI:https://g02.cpo2026.it/auth/realms/eurotransit/protocol/openid-connect/token}
+      client-id: ${ORDERS_SERVICE_CLIENT_ID:orders-service}
+      client-secret: ${ORDERS_SERVICE_CLIENT_SECRET:}
+      scope: ${ORDERS_SERVICE_TOKEN_SCOPE:}
 
 # circuit breaker for sync calls
 resilience4j:

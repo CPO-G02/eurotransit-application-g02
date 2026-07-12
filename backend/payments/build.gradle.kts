@@ -24,6 +24,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-data-r2dbc")
 	implementation("org.springframework.boot:spring-boot-starter-webflux")
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
+	implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
 	// springdoc 3.x is the Spring Boot 4 line (2.8.x targets Boot 3.x, where the
 	// Swagger UI does not serve under Framework 7).
 	implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:3.0.3")
@@ -45,6 +46,7 @@ dependencies {
 	testImplementation("org.wiremock:wiremock-standalone:3.9.1")
 	testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
 	testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")
+	testImplementation("org.springframework.security:spring-security-test")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
