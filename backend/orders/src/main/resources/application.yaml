@@ -60,6 +60,12 @@ app:
   security:
     jwt:
       audience: ${ORDERS_JWT_AUDIENCE:orders}
+      # Keys are fetched from Keycloak's in-cluster Service, not the public
+      # issuer-uri above - startup shouldn't depend on external ingress/DNS
+      # being reachable. Token 'iss' claims are still validated against the
+      # public issuer-uri (see SecurityConfig.jwtDecoder), since that's what
+      # Keycloak actually stamps on real tokens.
+      jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://eurotransit-keycloak-service:8080/auth/realms/eurotransit/protocol/openid-connect/certs}
     service-token:
       inventory:
         enabled: ${INVENTORY_SERVICE_TOKEN_ENABLED:false}
@@ -102,3 +108,14 @@ resilience4j:
         wait-duration: 500ms
         enable-exponential-backoff: true
         exponential-backoff-multiplier: 2
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never

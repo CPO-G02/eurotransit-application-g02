@@ -21,6 +21,10 @@ management:
   endpoint:
     prometheus:
       enabled: true
+    health:
+      probes:
+        enabled: true
+      show-details: never
 
 server:
   shutdown: graceful
