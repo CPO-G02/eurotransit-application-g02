@@ -1,0 +1,48 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: inventory
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:https://g02.cpo2026.it/auth/realms/eurotransit}
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  r2dbc:
+    # Local-dev defaults; overridden by env from the inventory-db secret in cluster.
+    url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/inventory}
+    username: ${SPRING_R2DBC_USERNAME:inventory}
+    password: ${SPRING_R2DBC_PASSWORD:inventory}
+  sql:
+    init:
+      mode: always
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: inventory-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+app:
+  security:
+    jwt:
+      audience: ${INVENTORY_JWT_AUDIENCE:inventory}
+  kafka:
+    topics:
+      order-failed: eurotransit.order-failed
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never

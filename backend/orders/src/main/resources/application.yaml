@@ -1,0 +1,121 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  application:
+    name: orders
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:https://g02.cpo2026.it/auth/realms/eurotransit}
+  
+  # run schema.sql on startup
+  sql:
+    init:
+      mode: always
+  
+  # reactive postgresql connection
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:orders_db}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASS:postgres}
+    pool:
+      max-size: 10
+      initial-size: 5
+
+  # kafka configuration
+  kafka:
+    bootstrap-servers: ${KAFKA_BROKERS:localhost:9092}
+    consumer:
+      group-id: orders-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+# custom app properties v3 main
+app:
+  kafka:
+    topics:
+      order-placed: eurotransit.order-placed
+      inventory-reserved: eurotransit.inventory-reserved
+      payment-authorized: eurotransit.payment-authorized
+      payment-failed: eurotransit.payment-failed
+      order-confirmed: eurotransit.order-confirmed
+      order-failed: eurotransit.order-failed
+  payments:
+    url: http://${PAYMENTS_HOST:localhost}:8080/api/v1/payments
+  inventory:
+    url: http://${INVENTORY_HOST:localhost}:8080
+  security:
+    jwt:
+      audience: ${ORDERS_JWT_AUDIENCE:orders}
+      # Keys are fetched from Keycloak's in-cluster Service, not the public
+      # issuer-uri above - startup shouldn't depend on external ingress/DNS
+      # being reachable. Token 'iss' claims are still validated against the
+      # public issuer-uri (see SecurityConfig.jwtDecoder), since that's what
+      # Keycloak actually stamps on real tokens.
+      jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://eurotransit-keycloak-service:8080/auth/realms/eurotransit/protocol/openid-connect/certs}
+    # One orders-service token for all outbound sync calls (Inventory + Payments).
+    service-token:
+      enabled: ${SERVICE_TOKEN_ENABLED:false}
+      token-uri: ${KEYCLOAK_TOKEN_URI:https://g02.cpo2026.it/auth/realms/eurotransit/protocol/openid-connect/token}
+      client-id: ${ORDERS_SERVICE_CLIENT_ID:orders-service}
+      client-secret: ${ORDERS_SERVICE_CLIENT_SECRET:}
+      scope: ${ORDERS_SERVICE_TOKEN_SCOPE:}
+
+# circuit breaker for sync calls
+resilience4j:
+  circuitbreaker:
+    instances:
+      payments-client:
+        register-health-indicator: true
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+      inventory-client:
+        register-health-indicator: true
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+  timelimiter:
+    instances:
+      payments-client:
+        timeout-duration: 2s
+      inventory-client:
+        timeout-duration: 2s
+  retry:
+    instances:
+      payments-client:
+        max-attempts: 3
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+      inventory-client:
+        max-attempts: 3
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never

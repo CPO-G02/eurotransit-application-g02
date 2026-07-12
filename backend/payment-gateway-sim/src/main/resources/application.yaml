@@ -1,0 +1,32 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: payment-gateway-sim
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+app:
+  gateway:
+    decline-above: 500.00
+  stripe:
+    # false -> normal path uses the local synth, so no Stripe credentials needed.
+    enabled: ${STRIPE_ENABLED:true}
+    base-url: https://api.stripe.com
+    api-version: "2024-06-20"    # pinned so response shapes don't drift
+    secret-key: ${STRIPE_SECRET_KEY:}   # from a Kubernetes Secret; never committed
+    payment-method: ${STRIPE_PAYMENT_METHOD:pm_card_visa}
+    timeout-ms: ${STRIPE_TIMEOUT_MS:5000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
