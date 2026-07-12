@@ -5,6 +5,152 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+
+**Agent**
+
+Claude (Opus 4.8) via Claude Code
+
+**Task**
+
+Add distributed JWT validation to Payments (architecture pattern B) so
+`POST /api/v1/payments/authorize` requires a valid Bearer token, AND make Orders'
+`PaymentClient` forward a service-account token so Stage 2 keeps working under
+enforcement — matching what Inventory + Orders→Inventory already do.
+
+**Files Modified**
+
+- backend/payments/build.gradle.kts (+ oauth2-resource-server, + spring-security-test)
+- backend/payments/src/main/kotlin/.../config/SecurityConfig.kt (new)
+- backend/payments/src/main/kotlin/.../config/JwtAudienceValidator.kt (new)
+- backend/payments/src/main/resources/application.yaml (issuer-uri, audience)
+- backend/payments/src/test/kotlin/.../SecurityConfigTest.kt (new)
+- backend/payments/src/test/kotlin/.../PaymentsAuthorizeTest.kt (mock decoder + token)
+- backend/payments/src/test/kotlin/.../PaymentGatewayCircuitBreakerTest.kt (mock decoder)
+- backend/payments/CLAUDE.md
+- backend/orders/src/main/kotlin/.../client/PaymentClient.kt (forward service token)
+- backend/orders/src/test/kotlin/.../PaymentClientTest.kt (bearer-token test)
+
+**Summary**
+
+Payments: mirrored Inventory's resource-server setup into the payments package.
+`SecurityConfig` protects `/api/v1/payments/**` (`authenticated`), keeps actuator
+and Swagger open, and validates JWTs locally against Keycloak's JWKS
+(`issuer-uri`) with an audience check (`JwtAudienceValidator`,
+`app.security.jwt.audience` default `payments`). The `jwtDecoder` bean fetches
+JWKS at startup, so every `@SpringBootTest` mocks `ReactiveJwtDecoder`; endpoint
+tests send `Bearer test-token` with a stubbed decode returning a Jwt carrying
+`aud=payments`.
+
+Orders: `PaymentClient` now applies the same `bearerTokenFilter` as
+`InventoryClient`, reusing the existing `ServiceTokenProvider` (one `orders-service`
+client-credentials token for both edges, gated by the shared
+`app.security.service-token.*` toggle, default off — the config key was renamed
+from `...service-token.inventory.*` since it now serves both edges). Added a
+`PaymentClientTest` asserting the `Bearer <token>` header reaches `/authorize`.
+
+Built on a fresh branch off `dev` (which already has the security infra merged).
+Payments build green (8 tests, 0 skipped); Orders build green (incl. the 2
+PaymentClient tests).
+
+**Potential Risks**
+
+- **Keycloak config (required for enforcement):** the `orders-service` token's
+  `aud` must contain `payments` (audience mapper / client scope) or Stage 2 401s.
+  Infra, not code.
+- The service-token config was renamed `app.security.service-token.inventory.*` →
+  `app.security.service-token.*` (env `INVENTORY_SERVICE_TOKEN_ENABLED` →
+  `SERVICE_TOKEN_ENABLED`) since one orders-service token now serves both the
+  Inventory and Payments edges. No config-repo references existed, so the rename
+  is self-contained.
+- Config repo: `PAYMENTS_JWT_AUDIENCE` / `KEYCLOAK_ISSUER_URI` env wiring in the
+  Payments Deployment/values not added here.
+
+**Confidence**
+
+High — both services build with tests green; inbound 401-without-token proven and
+the Orders bearer-token forwarding asserted. End-to-end enforcement additionally
+depends on the flagged Keycloak audience config.
+
+**Notes**
+
+`dev` already carries the shared security infra (`ServiceTokenProvider`,
+`InventoryClient` token filter, oauth2 deps), so this change only added the
+Payments resource server and the missing Payments edge on `PaymentClient`.
+
+
+### 2026-07-11 17:30
+
+**Agent**
+
+Claude (Opus 4.8) via Claude Code
+
+**Task**
+
+
+Turn `payment-gateway-sim` from a pure local simulator into a real Stripe
+adapter, without changing Payments or the `POST /gateway/charge` request/response
+contract. Keep the `X-Simulate-*` fault-injection short-circuit intact for chaos
+testing, and add a local/CI profile that needs no Stripe credentials.
+
+**Files Modified**
+
+- backend/payment-gateway-sim/src/main/kotlin/.../gateway/ChargeGateway.kt (new)
+- backend/payment-gateway-sim/src/main/kotlin/.../gateway/LocalChargeGateway.kt (new)
+- backend/payment-gateway-sim/src/main/kotlin/.../gateway/StripeChargeGateway.kt (new)
+- backend/payment-gateway-sim/src/main/kotlin/.../gateway/StripeDtos.kt (new)
+- backend/payment-gateway-sim/src/main/kotlin/.../config/ChargeGatewayConfig.kt (new)
+- backend/payment-gateway-sim/src/main/kotlin/.../controllers/GatewayController.kt
+- backend/payment-gateway-sim/src/main/resources/application.yaml
+- backend/payment-gateway-sim/src/main/resources/application-local.yaml (new)
+- backend/payment-gateway-sim/build.gradle.kts
+- backend/payment-gateway-sim/src/test/kotlin/.../GatewaySimTest.kt
+- backend/payment-gateway-sim/src/test/kotlin/.../StripeChargeGatewayTest.kt (new)
+- backend/payment-gateway-sim/CLAUDE.md (new)
+
+**Summary**
+
+The normal path now calls Stripe's PaymentIntents API for real via a reactive
+`WebClient` (chosen over the blocking Stripe Java SDK: non-blocking, zero new
+runtime deps, consistent with the repo's other HTTP edges). It creates and
+confirms a PaymentIntent in one server-to-server call (`confirm=true`,
+`allow_redirects=never`), sends `order_id` as the `Idempotency-Key`, pins
+`Stripe-Version`, and applies a `responseTimeout` independent of any circuit
+breaker. Outcomes map to the frozen `ChargeResponse`: `succeeded → AUTHORIZED`;
+402 / non-success → `DECLINED` with Stripe's `decline_code`; network/5xx/timeout
+are rethrown, never turned into a fake decision. `ChargeGateway` abstracts the
+decision; `LocalChargeGateway` keeps the amount-threshold synth and backs both
+the fault-injection short-circuit and the normal path when Stripe is disabled.
+Bean selection is by `app.stripe.enabled` alone (symmetric `@ConditionalOnProperty`),
+with qualifier-based injection. `app.stripe.enabled=false` (also
+`application-local.yaml`) lets CI/local build/test run with no credentials; the
+Stripe mapping is covered by a WireMock-backed test. 9/9 tests pass, 0 skipped.
+
+**Potential Risks**
+
+- The WireMock tests validate the mapping against *assumed* Stripe wire formats,
+  not a live call. Real-Stripe risks not yet confirmed: combining
+  `automatic_payment_methods` with an explicit `payment_method`; the exact
+  decline JSON; the `2024-06-20` API version. Needs one manual run with a test
+  key (`STRIPE_SECRET_KEY=sk_test_...`) to validate.
+- `ChargeRequest` carries no card token, so every confirm uses one configured
+  test payment method (`pm_card_visa`); per-order selection is a follow-up.
+- New external dependency + egress to `api.stripe.com`, and a Stripe secret.
+  Architecture/contract docs and the service's Helm deployment + SealedSecret are
+  not updated here (proposed separately, pending approval / config repo).
+
+**Confidence**
+
+Medium — internal logic and mapping are test-covered and green; adherence to the
+real Stripe API is unvalidated until a live test-mode call is made.
+
+**Notes**
+
+Payments is untouched (no file under `backend/payments/`). The `X-Simulate-*`
+short-circuit is byte-for-byte unchanged and still skips Stripe entirely. The
+adapter fails fast at startup if enabled with a blank key.
+
+---
+
 ### 2026-07-10 19:10
 
 **Agent**

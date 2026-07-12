@@ -39,6 +39,19 @@ Unlike Inventory, Payments needs **no compensation / status-transition table**:
 `order-failed` is consumed only by Inventory + Notifications, Payments never
 touches Kafka, and no documented flow ever reverses an AUTHORIZED payment.
 
+## Security
+Distributed JWT validation (architecture pattern B): `SecurityConfig` makes
+`/api/v1/payments/**` require a valid Bearer JWT, verified locally against
+Keycloak's JWKS (`spring.security.oauth2.resourceserver.jwt.issuer-uri`) with an
+audience check (`app.security.jwt.audience`, default `payments`). Actuator and
+Swagger stay open. The `jwtDecoder` bean fetches JWKS at startup, so tests mock
+`ReactiveJwtDecoder`.
+
+Orders' `PaymentClient` now forwards the same `orders-service` service-account
+token already used for Inventory (gated by `app.security.service-token.*`).
+Still required for enforcement end-to-end: Keycloak must mint that token with an
+`aud` containing `payments`, otherwise Stage 2 (Orders→Payments) 401s.
+
 ## Explicitly out of scope (later tasks)
 - **Circuit breaker** on the Payments→gateway edge (fallback = respond 402
   `circuit_breaker_open` without reaching the gateway, contract §1.5). The

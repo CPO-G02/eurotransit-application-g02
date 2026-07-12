@@ -16,11 +16,11 @@ data class ServiceTokenResponse(
 
 @Component
 class ServiceTokenProvider(
-    @Value("\${app.security.service-token.inventory.enabled:false}") private val enabled: Boolean,
-    @Value("\${app.security.service-token.inventory.token-uri:}") private val tokenUri: String,
-    @Value("\${app.security.service-token.inventory.client-id:orders-service}") private val clientId: String,
-    @Value("\${app.security.service-token.inventory.client-secret:}") private val clientSecret: String,
-    @Value("\${app.security.service-token.inventory.scope:}") private val scope: String,
+    @Value("\${app.security.service-token.enabled:false}") private val enabled: Boolean,
+    @Value("\${app.security.service-token.token-uri:}") private val tokenUri: String,
+    @Value("\${app.security.service-token.client-id:orders-service}") private val clientId: String,
+    @Value("\${app.security.service-token.client-secret:}") private val clientSecret: String,
+    @Value("\${app.security.service-token.scope:}") private val scope: String,
     webClientBuilder: WebClient.Builder = WebClient.builder()
 ) {
     private val webClient = webClientBuilder.build()
@@ -38,10 +38,10 @@ class ServiceTokenProvider(
         }
 
         require(tokenUri.isNotBlank()) {
-            "app.security.service-token.inventory.token-uri must be configured when service tokens are enabled"
+            "app.security.service-token.token-uri must be configured when service tokens are enabled"
         }
         require(clientSecret.isNotBlank()) {
-            "app.security.service-token.inventory.client-secret must be configured when service tokens are enabled"
+            "app.security.service-token.client-secret must be configured when service tokens are enabled"
         }
 
         var form = BodyInserters

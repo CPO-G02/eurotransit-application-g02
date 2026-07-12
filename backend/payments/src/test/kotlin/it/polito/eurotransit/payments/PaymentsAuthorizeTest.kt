@@ -18,14 +18,20 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.test.context.SpringBootTest
+import org.mockito.Mockito.`when`
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection
+import org.springframework.security.oauth2.jwt.Jwt
+import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
+import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.web.reactive.server.WebTestClient
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
+import reactor.core.publisher.Mono
 import java.math.BigDecimal
+import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
@@ -38,8 +44,14 @@ class PaymentsAuthorizeTest @Autowired constructor(
     @Value("\${local.server.port}") private val port: Int,
 ) {
 
+    @MockitoBean
+    private lateinit var jwtDecoder: ReactiveJwtDecoder
+
     private val webTestClient by lazy {
-        WebTestClient.bindToServer().baseUrl("http://localhost:$port").build()
+        WebTestClient.bindToServer()
+            .baseUrl("http://localhost:$port")
+            .defaultHeader("Authorization", "Bearer test-token")
+            .build()
     }
 
     companion object {
@@ -68,9 +80,18 @@ class PaymentsAuthorizeTest @Autowired constructor(
 
     @BeforeEach
     fun reset() = runBlocking {
+        `when`(jwtDecoder.decode("test-token")).thenReturn(Mono.just(jwtWithAudience("payments")))
         transactionRepository.deleteAll()
         gateway.resetAll()
     }
+
+    private fun jwtWithAudience(audience: String): Jwt =
+        Jwt.withTokenValue("test-token")
+            .header("alg", "none")
+            .audience(listOf(audience))
+            .issuedAt(Instant.now())
+            .expiresAt(Instant.now().plusSeconds(60))
+            .build()
 
     private fun stubDecision(json: String) {
         gateway.stubFor(post(urlEqualTo("/gateway/charge")).willReturn(okJson(json)))
