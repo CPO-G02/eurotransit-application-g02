@@ -74,12 +74,27 @@ jobs:
           image="${{ secrets.ACR_LOGIN_SERVER }}/eurotransit/${{ matrix.service }}:latest"
 
           docker build -t $image ./backend/${{ matrix.service }}
-          docker push $image
 
-          # Verify the push actually landed before trusting it - a failed or
-          # silently-wrong push must never lead to a "successful" rollout
-          # trigger downstream.
-          docker manifest inspect $image > /dev/null
+          push_output=$(docker push $image)
+          echo "$push_output"
+          pushed_digest=$(echo "$push_output" | grep -oP 'digest: \K\S+')
+
+          if [ -z "$pushed_digest" ]; then
+            echo "::error::docker push did not report a digest - treating this as a failed push"
+            exit 1
+          fi
+
+          # A tag can exist and "docker manifest inspect" successfully even
+          # when this specific push silently failed to move the pointer -
+          # that gap is exactly what let a stale image get deployed earlier.
+          # Confirm "latest" now actually resolves to the digest we just
+          # pushed, not leftover content from an older run.
+          live_digest=$(docker manifest inspect "$image" --verbose | python3 -c "import json,sys; print(json.load(sys.stdin)['Descriptor']['digest'])")
+
+          if [ "$live_digest" != "$pushed_digest" ]; then
+            echo "::error::Pushed $pushed_digest but the 'latest' tag resolves to $live_digest - push did not actually update the tag"
+            exit 1
+          fi
 
       # checkout config
       - uses: actions/checkout@v4
