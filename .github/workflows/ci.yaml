@@ -62,15 +62,24 @@ jobs:
           password: ${{ secrets.ACR_PASSWORD }}
 
       # build and push
+      # Image tag is fixed at "latest" - the Deployment's imagePullPolicy is
+      # Always (see values.yaml), so pods always pull the newest push rather
+      # than reusing a locally-cached copy under the same tag name.
       - name: build and push
-        env:
-          IMAGE_TAG: ${{ github.sha }}
         run: |
-          tag="${IMAGE_TAG:0:7}"
-          image="${{ secrets.ACR_LOGIN_SERVER }}/eurotransit-${{ matrix.service }}:$tag"
-          
+          # NOTE: "eurotransit/<service>" (slash), matching the repository
+          # path every Deployment actually pulls from - not
+          # "eurotransit-<service>" (hyphen), which silently pushed to a
+          # repository nothing ever reads from.
+          image="${{ secrets.ACR_LOGIN_SERVER }}/eurotransit/${{ matrix.service }}:latest"
+
           docker build -t $image ./backend/${{ matrix.service }}
           docker push $image
+
+          # Verify the push actually landed before trusting it - a failed or
+          # silently-wrong push must never lead to a "successful" rollout
+          # trigger downstream.
+          docker manifest inspect $image > /dev/null
 
       # checkout config
       - uses: actions/checkout@v4
@@ -79,24 +88,24 @@ jobs:
           token: ${{ secrets.GITOPS_TOKEN }}
           path: config-repo
 
-      # update helm values
-      - name: update values and commit
-        env:
-          IMAGE_TAG: ${{ github.sha }}
+      # trigger rollout
+      # The image tag itself ("latest") never changes, so nothing about the
+      # Deployment spec would otherwise differ after a new push - Kubernetes
+      # only rolls pods when the pod template actually changes. Bumping a
+      # restartedAt annotation via the git-tracked value is what forces that,
+      # keeping this fully GitOps (no direct cluster credentials in CI).
+      - name: bump restart annotation and commit
         run: |
           cd config-repo
-          
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          tag="${IMAGE_TAG:0:7}"
-          
-          # update nested tag value using yq
-          yq -i ".${{ matrix.service }}.image.tag = \"$tag\"" deploy/charts/eurotransit/values.yaml
-          
+
+          yq -i ".${{ matrix.service }}.restartedAt = \"$(date -u +%Y-%m-%dT%H:%M:%SZ)-${{ github.sha }}\"" deploy/charts/eurotransit/values.yaml
+
           git add deploy/charts/eurotransit/values.yaml
-          git commit -m "chore: update ${{ matrix.service }} image tag to $tag" || echo "no changes"
-          
+          git commit -m "chore: trigger ${{ matrix.service }} rollout for ${{ github.sha }}" || echo "no changes"
+
           # retry push on collision
           n=0
           until [ "$n" -ge 5 ]
