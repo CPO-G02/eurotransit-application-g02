@@ -1,0 +1,139 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body, html {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: #0d1117;
+}
+
+.login-viewport {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background-color: #0d1117;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+.train-track-bg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90vw;
+  max-width: 1300px;
+  z-index: 1;
+  pointer-events: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.static-train-svg {
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 0 20px rgba(234, 88, 12, 0.15));
+}
+
+.login-card-pro {
+  position: relative;
+  z-index: 10;
+  background: rgba(22, 27, 34, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 3.5rem 3rem;
+  border-radius: 1.5rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  text-align: center;
+  max-width: 420px;
+  width: 85%;
+}
+
+.brand-header {
+  margin-bottom: 2.5rem;
+}
+
+.brand-tag {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: #ea580c;
+  background: rgba(234, 88, 12, 0.1);
+  border: 1px solid rgba(234, 88, 12, 0.3);
+  padding: 0.35rem 0.8rem;
+  border-radius: 9999px;
+  display: inline-block;
+  margin-bottom: 1.2rem;
+}
+
+.brand-title {
+  font-size: 2.75rem;
+  font-weight: 900;
+  color: #ffffff;
+  margin: 0 0 0.5rem 0;
+  letter-spacing: -1.5px;
+}
+
+.brand-subtitle {
+  font-size: 0.95rem;
+  color: #8b949e;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.action-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.btn-primary-pro {
+  background: #ea580c;
+  color: #ffffff;
+  border: none;
+  padding: 1.05rem;
+  border-radius: 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 15px rgba(234, 88, 12, 0.3);
+}
+
+.btn-primary-pro:hover {
+  background: #c2410c;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(234, 88, 12, 0.4);
+}
+
+.btn-secondary-pro {
+  background: rgba(255, 255, 255, 0.03);
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  padding: 0.95rem;
+  border-radius: 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary-pro:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  border-color: #8b949e;
+}
+
+.card-footer {
+  margin-top: 2.5rem;
+  font-size: 0.75rem;
+  color: #484f58;
+}

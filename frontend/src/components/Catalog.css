@@ -1,0 +1,170 @@
+.catalog-viewport {
+  min-height: 100vh;
+  width: 100vw;
+  background-color: #0d1117;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.catalog-content {
+  padding: 3.5rem 3rem;
+  max-width: 1250px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.catalog-title-bar {
+  margin-bottom: 3rem;
+}
+
+.catalog-title-bar h1 {
+  font-size: 2.75rem;
+  font-weight: 900;
+  margin: 0 0 0.5rem 0;
+  letter-spacing: -1.5px;
+}
+
+.catalog-title-bar p {
+  color: #8b949e;
+  font-size: 1.05rem;
+  margin: 0;
+}
+
+.demo-banner {
+  margin-top: 1.2rem;
+  background: rgba(234, 88, 12, 0.1);
+  border: 1px solid rgba(234, 88, 12, 0.3);
+  color: #ff7b2e;
+  padding: 0.75rem 1.2rem;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: inline-block;
+}
+
+.trains-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 2rem;
+}
+
+.train-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 1.2rem;
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all 0.2s ease;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+}
+
+.train-card:hover {
+  transform: translateY(-4px);
+  border-color: #8b949e;
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+}
+
+.train-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.train-id {
+  font-family: monospace;
+  font-weight: 700;
+  color: #8b949e;
+  font-size: 0.9rem;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.3rem 0.6rem;
+  border-radius: 0.4rem;
+}
+
+.train-status {
+  background: rgba(46, 160, 67, 0.15);
+  color: #3fb950;
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 0.35rem 0.7rem;
+  border-radius: 9999px;
+  letter-spacing: 1px;
+}
+
+.train-route {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px dashed #30363d;
+}
+
+.station-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.route-arrow {
+  color: #ea580c;
+  font-weight: 800;
+  font-size: 1.2rem;
+}
+
+.train-details {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1.75rem;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.detail-label {
+  font-size: 0.7rem;
+  color: #8b949e;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.detail-value {
+  font-size: 0.95rem;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.price-value {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.btn-book {
+  background: #ea580c;
+  color: #ffffff;
+  border: none;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+  box-shadow: 0 4px 12px rgba(234, 88, 12, 0.2);
+}
+
+.btn-book:hover {
+  background: #c2410c;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(234, 88, 12, 0.3);
+}
