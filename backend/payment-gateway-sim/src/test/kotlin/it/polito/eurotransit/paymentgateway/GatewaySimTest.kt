@@ -7,7 +7,12 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.web.reactive.server.WebTestClient
 import java.time.Duration
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// Stripe disabled so the no-header assertions exercise the local synth; the
+// Stripe path is covered by StripeChargeGatewayTest.
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = ["app.stripe.enabled=false"],
+)
 class GatewaySimTest @Autowired constructor(
     @Value("\${local.server.port}") private val port: Int,
 ) {

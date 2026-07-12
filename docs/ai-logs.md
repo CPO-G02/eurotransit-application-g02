@@ -5,6 +5,78 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-11 17:30
+
+**Agent**
+
+Claude (Opus 4.8) via Claude Code
+
+**Task**
+
+Turn `payment-gateway-sim` from a pure local simulator into a real Stripe
+adapter, without changing Payments or the `POST /gateway/charge` request/response
+contract. Keep the `X-Simulate-*` fault-injection short-circuit intact for chaos
+testing, and add a local/CI profile that needs no Stripe credentials.
+
+**Files Modified**
+
+- backend/payment-gateway-sim/src/main/kotlin/.../gateway/ChargeGateway.kt (new)
+- backend/payment-gateway-sim/src/main/kotlin/.../gateway/LocalChargeGateway.kt (new)
+- backend/payment-gateway-sim/src/main/kotlin/.../gateway/StripeChargeGateway.kt (new)
+- backend/payment-gateway-sim/src/main/kotlin/.../gateway/StripeDtos.kt (new)
+- backend/payment-gateway-sim/src/main/kotlin/.../config/ChargeGatewayConfig.kt (new)
+- backend/payment-gateway-sim/src/main/kotlin/.../controllers/GatewayController.kt
+- backend/payment-gateway-sim/src/main/resources/application.yaml
+- backend/payment-gateway-sim/src/main/resources/application-local.yaml (new)
+- backend/payment-gateway-sim/build.gradle.kts
+- backend/payment-gateway-sim/src/test/kotlin/.../GatewaySimTest.kt
+- backend/payment-gateway-sim/src/test/kotlin/.../StripeChargeGatewayTest.kt (new)
+- backend/payment-gateway-sim/CLAUDE.md (new)
+
+**Summary**
+
+The normal path now calls Stripe's PaymentIntents API for real via a reactive
+`WebClient` (chosen over the blocking Stripe Java SDK: non-blocking, zero new
+runtime deps, consistent with the repo's other HTTP edges). It creates and
+confirms a PaymentIntent in one server-to-server call (`confirm=true`,
+`allow_redirects=never`), sends `order_id` as the `Idempotency-Key`, pins
+`Stripe-Version`, and applies a `responseTimeout` independent of any circuit
+breaker. Outcomes map to the frozen `ChargeResponse`: `succeeded → AUTHORIZED`;
+402 / non-success → `DECLINED` with Stripe's `decline_code`; network/5xx/timeout
+are rethrown, never turned into a fake decision. `ChargeGateway` abstracts the
+decision; `LocalChargeGateway` keeps the amount-threshold synth and backs both
+the fault-injection short-circuit and the normal path when Stripe is disabled.
+Bean selection is by `app.stripe.enabled` alone (symmetric `@ConditionalOnProperty`),
+with qualifier-based injection. `app.stripe.enabled=false` (also
+`application-local.yaml`) lets CI/local build/test run with no credentials; the
+Stripe mapping is covered by a WireMock-backed test. 9/9 tests pass, 0 skipped.
+
+**Potential Risks**
+
+- The WireMock tests validate the mapping against *assumed* Stripe wire formats,
+  not a live call. Real-Stripe risks not yet confirmed: combining
+  `automatic_payment_methods` with an explicit `payment_method`; the exact
+  decline JSON; the `2024-06-20` API version. Needs one manual run with a test
+  key (`STRIPE_SECRET_KEY=sk_test_...`) to validate.
+- `ChargeRequest` carries no card token, so every confirm uses one configured
+  test payment method (`pm_card_visa`); per-order selection is a follow-up.
+- New external dependency + egress to `api.stripe.com`, and a Stripe secret.
+  Architecture/contract docs and the service's Helm deployment + SealedSecret are
+  not updated here (proposed separately, pending approval / config repo).
+
+**Confidence**
+
+Medium — internal logic and mapping are test-covered and green; adherence to the
+real Stripe API is unvalidated until a live test-mode call is made.
+
+**Notes**
+
+Payments is untouched (no file under `backend/payments/`). The `X-Simulate-*`
+short-circuit is byte-for-byte unchanged and still skips Stripe entirely. The
+adapter fails fast at startup if enabled with a blank key.
+
+---
+
 ### 2026-07-10 19:10
 
 **Agent**

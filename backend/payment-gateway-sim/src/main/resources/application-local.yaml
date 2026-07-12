@@ -1,0 +1,4 @@
+app:
+  stripe:
+    # Local/CI: skip Stripe (no credentials needed); fault injection unaffected.
+    enabled: false
