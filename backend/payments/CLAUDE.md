@@ -24,16 +24,31 @@ approval.
 - `POST /api/v1/payments/authorize` (contract §1.5): `{ idempotency_key,
   user_id, amount, currency }` → `200 { transaction_id, status:"AUTHORIZED" }`
   or `402 { status:"DECLINED", reason }`.
-- The gateway call goes through `PaymentGateway`. Today the only implementation
-  is `MockPaymentGateway`: it declines amounts above `app.gateway.decline-above`
-  (default 500.00) with `insufficient_funds`, otherwise authorizes. This rule is
-  a human-approved simulation so the 402 branch is demonstrable end-to-end.
+  A duplicate `/authorize` (same `idempotency_key`) replays the original
+  decision without reaching the gateway again — idempotency level 2,
+  contract §3.2.
+- The gateway call goes through `PaymentGateway`, implemented by
+  `HttpPaymentGateway`: a real HTTP call to `payment-gateway-sim`, wrapped in
+  its own Resilience4j circuit breaker (instance `payment-gateway`). The
+  fallback is `402 DECLINED` with reason `circuit_breaker_open`, without
+  reaching the gateway.
 
 ## Data model
 - `transactions(transaction_id, order_id, user_id, amount, currency, status,
   reason)` — one row per decision, AUTHORIZED and DECLINED alike. Declined rows
-  feed dashboards/logs; the table is also where the future idempotency task will
-  return existing transactions from.
+  feed dashboards/logs.
+- `processed_requests(idempotency_key, transaction_id)` — level 2 sync dedup.
+  Written **after** the gateway answers, in the same transaction as the
+  `transactions` row (`DecisionRecorder`), so exactly one decision is ever
+  recorded per order. The transaction is deliberately not held across the
+  gateway call.
+
+## Why a circuit_breaker_open decline is not memoised
+It means the gateway never gave a decision (breaker open, or the call
+failed/timed out), so there is nothing to deduplicate and memoising it would pin
+a transient outage onto the order forever. The `transactions` row is still
+written for dashboards; the retry is allowed through, and Stripe's own
+`Idempotency-Key: order_id` stops it double-charging.
 
 Unlike Inventory, Payments needs **no compensation / status-transition table**:
 `order-failed` is consumed only by Inventory + Notifications, Payments never
@@ -52,9 +67,9 @@ token already used for Inventory (gated by `app.security.service-token.*`).
 Still required for enforcement end-to-end: Keycloak must mint that token with an
 `aud` containing `payments`, otherwise Stage 2 (Orders→Payments) 401s.
 
-## Explicitly out of scope (later tasks)
-- **Circuit breaker** on the Payments→gateway edge (fallback = respond 402
-  `circuit_breaker_open` without reaching the gateway, contract §1.5). The
-  `PaymentGateway` interface is the seam it will plug into.
-- **Request-level idempotency** (`processed_requests` dedup on `idempotency_key`,
-  contract §3.2 Level 2): a duplicated `/authorize` currently charges again.
+## Known residual risk
+`authorize()` charges before it persists: a pod death in between leaves the
+money taken with no local row. The ledger self-heals on Orders' retry (Stripe
+returns the same PaymentIntent), but not if the retry budget runs out first.
+Closing that needs claim-before-charge plus a reaper for abandoned claims —
+bigger than contract §3.2 Level 2 asks for.

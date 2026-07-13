@@ -7,6 +7,7 @@ import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration
 import it.polito.eurotransit.payments.dto.AuthorizeRequest
 import it.polito.eurotransit.payments.exceptions.PaymentDeclinedException
+import it.polito.eurotransit.payments.repositories.ProcessedRequestRepository
 import it.polito.eurotransit.payments.repositories.TransactionRepository
 import it.polito.eurotransit.payments.service.PaymentsService
 import kotlinx.coroutines.flow.toList
@@ -41,6 +42,7 @@ import kotlin.test.assertTrue
 class PaymentsAuthorizeTest @Autowired constructor(
     private val paymentsService: PaymentsService,
     private val transactionRepository: TransactionRepository,
+    private val processedRequestRepository: ProcessedRequestRepository,
     @Value("\${local.server.port}") private val port: Int,
 ) {
 
@@ -81,6 +83,7 @@ class PaymentsAuthorizeTest @Autowired constructor(
     @BeforeEach
     fun reset() = runBlocking {
         `when`(jwtDecoder.decode("test-token")).thenReturn(Mono.just(jwtWithAudience("payments")))
+        processedRequestRepository.deleteAll()
         transactionRepository.deleteAll()
         gateway.resetAll()
     }
