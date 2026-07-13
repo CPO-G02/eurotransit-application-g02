@@ -1,0 +1,227 @@
+.checkout-viewport {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+  color: #ffffff;
+}
+
+.checkout-header {
+  margin-bottom: 2rem;
+}
+
+.checkout-header h1 {
+  font-size: 2.2rem;
+  font-weight: 900;
+  margin: 0 0 0.5rem 0;
+}
+
+.checkout-header p {
+  color: #8b949e;
+  margin: 0;
+}
+
+.checkout-error-banner {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid #ef4444;
+  color: #ef4444;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  margin-bottom: 2rem;
+}
+
+.checkout-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 2rem;
+}
+
+.journey-summary-card,
+.payment-summary-card {
+  background: rgba(22, 27, 34, 0.88);
+  border: 1px solid #30363d;
+  border-radius: 1.5rem;
+  padding: 2rem;
+}
+
+.journey-summary-card h2,
+.payment-summary-card h2 {
+  font-size: 1.3rem;
+  margin: 0 0 1.5rem 0;
+  border-bottom: 1px solid #30363d;
+  padding-bottom: 0.75rem;
+}
+
+.summary-route {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin-bottom: 1.5rem;
+}
+
+.summary-arrow {
+  color: #ea580c;
+}
+
+.summary-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  color: #8b949e;
+}
+
+.summary-row strong {
+  color: #ffffff;
+}
+
+.class-selector h3 {
+  font-size: 1rem;
+  margin: 0 0 1rem 0;
+  color: #8b949e;
+}
+
+.class-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.class-btn {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  transition: all 0.2s ease;
+}
+
+.class-btn span {
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.class-btn.active {
+  border-color: #ea580c;
+  background: rgba(234, 88, 12, 0.1);
+}
+
+.breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  color: #8b949e;
+}
+
+.breakdown-divider {
+  border: 0;
+  border-top: 1px solid #30363d;
+  margin: 1.5rem 0;
+}
+
+.breakdown-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.breakdown-total span {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.total-price {
+  font-size: 1.8rem !important;
+  color: #ea580c;
+}
+
+.btn-confirm-booking {
+  width: 100%;
+  background: #ea580c;
+  color: #ffffff;
+  border: none;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-confirm-booking:hover:not(:disabled) {
+  background: #c2410c;
+}
+
+.btn-confirm-booking:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.success-card {
+  text-align: center;
+  padding: 4rem 2rem;
+  background: rgba(22, 27, 34, 0.88);
+  border: 1px solid #30363d;
+  border-radius: 1.5rem;
+  max-width: 500px;
+  margin: 2rem auto;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+}
+
+.success-icon {
+  font-size: 4rem;
+  color: #238636;
+  margin-bottom: 1.5rem;
+  background: rgba(35, 134, 54, 0.1);
+  width: 80px;
+  height: 80px;
+  line-height: 80px;
+  border-radius: 50%;
+  margin: 0 auto 1.5rem auto;
+  border: 1px solid rgba(35, 134, 54, 0.3);
+}
+
+.success-card h1 {
+  font-size: 2rem;
+  font-weight: 900;
+  margin: 0 0 0.5rem 0;
+}
+
+.success-card p {
+  color: #8b949e;
+  margin: 0 0 2rem 0;
+  font-size: 1rem;
+}
+
+.button-group {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.btn-secondary-pro {
+  background: #30363d;
+  color: white;
+  border: none;
+  padding: 1rem 1.5rem;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-secondary-pro:hover {
+  background: #484f58;
+}

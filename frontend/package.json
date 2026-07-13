@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "@react-keycloak/web": "^3.4.0",
+    "@stomp/stompjs": "^7.3.0",
     "axios": "^1.18.1",
     "keycloak-js": "^26.2.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-hot-toast": "^2.6.0",
     "react-router-dom": "^7.18.1"
   },
   "devDependencies": {

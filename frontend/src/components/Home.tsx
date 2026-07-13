@@ -31,13 +31,17 @@ export const Home = () => {
         </div>
 
         <div className="action-group">
-          {initialized && !keycloak.authenticated ? (
+          {!initialized ? (
+            <button className="btn-primary-pro" disabled>
+              Log In
+            </button>
+          ) : !keycloak.authenticated ? (
             <button className="btn-primary-pro" onClick={() => keycloak.login()}>
-              Sign In with Keycloak
+              Log In
             </button>
           ) : (
             <button className="btn-primary-pro" onClick={() => navigate('/catalog')}>
-              Log In
+              Enter Catalog
             </button>
           )}
           
