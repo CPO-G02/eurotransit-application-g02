@@ -5,6 +5,96 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-13 13:30
+
+**Agent**
+
+Claude Opus 4.8
+
+**Task**
+
+Phase 2 (money path), Inventory & Payments: Kafka consumer dedup for
+`order-failed`, request-level dedup for the two internal synchronous calls, and
+validation of the consistency guarantees under concurrent load.
+
+**Files Modified**
+
+Application repo (two branches):
+
+- `backend/inventory/src/main/resources/schema.sql` (+ `processed_requests`, `processed_events`)
+- `backend/inventory/.../entities/{ProcessedRequestEntity,ProcessedEventEntity}.kt`
+- `backend/inventory/.../repositories/{ProcessedRequestRepository,ProcessedEventRepository}.kt`
+- `backend/inventory/.../service/DefaultInventoryService.kt`
+- `backend/inventory/src/test/.../InventoryReserveTest.kt`, `OrderFailedConsumerDedupTest.kt` (new)
+- `backend/inventory/CLAUDE.md`
+- `backend/payments/src/main/resources/schema.sql` (+ `processed_requests`)
+- `backend/payments/.../entities/ProcessedRequestEntity.kt`, `.../repositories/ProcessedRequestRepository.kt`
+- `backend/payments/.../service/{DefaultPaymentsService,DecisionRecorder}.kt`
+- `backend/payments/.../gateway/{PaymentGateway,HttpPaymentGateway}.kt` (extracted the `circuit_breaker_open` constant)
+- `backend/payments/src/test/.../PaymentsIdempotencyTest.kt` (new), `PaymentsAuthorizeTest.kt`
+- `backend/payments/CLAUDE.md`
+
+Configuration repo:
+
+- `docs/consistency-validation.md` (new), `docs/dod.md`
+
+**Summary**
+
+Implemented idempotency levels 2 and 3 from contract §3.2. The starting premise
+of the task was wrong in both directions and this was caught by reading the code
+before implementing: the `order-failed` consumer and the 10-on-5 concurrency test
+already existed, while `processed_requests` — believed to be delivered in Phase 1
+— existed in neither Inventory nor Payments (both carried an explicit "out of
+scope" comment saying so).
+
+Inventory: `processed_requests` claim is taken *before* the seat decrement, so a
+concurrent duplicate cannot get past it (the loser's `ON CONFLICT DO NOTHING`
+blocks on the winner's row lock, then reads back the committed reservation). A
+409 rolls the claim back rather than memoising it. `processed_events` gates the
+`order-failed` consumer in the same transaction as the compensation.
+
+Payments: the recorded decision is replayed before the gateway is called; the
+transaction is opened only afterwards, around the `transactions` row and the
+claim together, so an order gets exactly one transaction row however a retry
+overlaps. A `circuit_breaker_open` decline is deliberately not memoised.
+
+Tests now drive concurrency over real HTTP (10-on-5 and 50-on-20 mixed
+quantities) rather than calling the service bean in-process, and the Kafka
+consumer is exercised against a real broker for the first time — the previous
+suite set `spring.kafka.listener.auto-startup=false`, leaving it entirely
+unverified.
+
+**Potential Risks**
+
+- **Compensation still does not work end-to-end**, for reasons outside these two
+  services: Orders publishes `order-failed` to a bare topic name (missing the
+  `eurotransit.` prefix) with no `reservation_id` and no `event_id` in the
+  payload. Inventory's consumer is correct and tested but nothing reaches it.
+  Raised with the Orders owner; the DoD box stays unticked.
+- Payments calls the gateway *before* it persists. A pod death in between leaves
+  the charge taken with no local row; the ledger self-heals on retry only because
+  the gateway sends `Idempotency-Key: order_id` to Stripe. Documented as residual
+  risk rather than silently closed.
+- The claim-first ordering in Inventory relies on Postgres blocking
+  `ON CONFLICT DO NOTHING` on the conflicting row's lock. This is correct under
+  READ COMMITTED but is a database-specific guarantee.
+
+**Confidence**
+
+High for Inventory and Payments. Each guard was mutation-tested: with the gate
+disabled, exactly the intended tests fail and no others. That also confirmed a
+claim made to the reviewer — that `processed_events` is defence in depth rather
+than a live bug fix, since the RESERVED→RELEASED status guard alone already
+prevents a double release.
+
+**Notes**
+
+No architecture, contract, Kafka topic or API change. Both new tables are
+specified in contract §3.2 and already listed for Inventory in
+architecture-design.md §2, so no §19 escalation was required. No new dependencies.
+
+---
+
 
 **Agent**
 
