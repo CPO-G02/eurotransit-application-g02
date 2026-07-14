@@ -1,252 +1,38 @@
-.trips-container {
-  max-width: 1050px;
-  margin: 0 auto;
-  padding: 3rem 2rem;
-  color: #ffffff;
-  min-height: 80vh;
-}
-
-.trips-header {
-  margin-bottom: 3rem;
-  border-bottom: 1px solid #30363d;
-  padding-bottom: 1.5rem;
-}
-
-.trips-title {
-  font-size: 2.5rem;
-  font-weight: 900;
-  letter-spacing: -1px;
-  margin: 0 0 0.5rem 0;
-}
-
-.trips-subtitle {
-  color: #8b949e;
-  font-size: 1rem;
-  margin: 0;
-}
-
-.user-highlight {
-  color: #ea580c;
-  font-weight: 700;
-}
-
-.trips-section {
-  margin-bottom: 3.5rem;
-}
-
-.section-title {
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: #8b949e;
-  letter-spacing: 0.5px;
-  margin-bottom: 1.5rem;
-  text-transform: uppercase;
-}
-
-.trips-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-  gap: 1.5rem;
-}
-
-.ticket-card {
-  background: rgba(22, 27, 34, 0.65);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid #30363d;
+.empty-state-card {
+  background: rgba(22, 27, 34, 0.4);
+  border: 2px dashed #30363d;
   border-radius: 1.25rem;
-  padding: 1.75rem;
-  position: relative;
-  overflow: hidden;
-  transition: border-color 0.2s ease;
-}
-
-.ticket-card.upcoming:hover {
-  border-color: rgba(234, 88, 12, 0.5);
-}
-
-.ticket-card.upcoming::before, .ticket-card.upcoming::after {
-  content: '';
-  position: absolute;
-  bottom: 75px;
-  width: 20px;
-  height: 20px;
-  background: #0d1117;
-  border-radius: 50%;
-  border: 1px solid #30363d;
-  z-index: 2;
-}
-
-.ticket-card.upcoming::before { left: -11px; }
-.ticket-card.upcoming::after { right: -11px; }
-
-.ticket-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1.5rem;
-}
-
-.ticket-id {
-  font-family: monospace;
-  color: #8b949e;
-  font-size: 0.9rem;
-}
-
-.ticket-badge-class {
-  font-size: 0.7rem;
-  font-weight: 800;
-  color: #ea580c;
-  background: rgba(234, 88, 12, 0.1);
-  border: 1px solid rgba(234, 88, 12, 0.3);
-  padding: 0.25rem 0.6rem;
-  border-radius: 6px;
-}
-
-.ticket-route {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px dashed #30363d;
-}
-
-.station {
+  padding: 3rem;
+  text-align: center;
   display: flex;
   flex-direction: column;
-}
-
-.station-code {
-  font-size: 2rem;
-  font-weight: 900;
-  letter-spacing: -0.5px;
-  color: #ffffff;
-}
-
-.station-name {
-  font-size: 0.85rem;
-  color: #8b949e;
-  margin-top: 2px;
-}
-
-.alignment-right {
-  text-align: right;
-}
-
-.route-line {
-  flex-grow: 1;
-  display: flex;
-  justify-content: center;
   align-items: center;
-  position: relative;
-  margin: 0 1.5rem;
-}
-
-.route-line::before {
-  content: '';
-  position: absolute;
-  width: 100%;
-  height: 2px;
-  background: #30363d;
-}
-
-.plane-icon {
-  position: relative;
-  z-index: 1;
-  background: #161b22;
-  padding: 0 8px;
-  color: #ea580c;
-  font-size: 1.1rem;
-}
-
-.ticket-details {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
   gap: 1rem;
 }
 
-.detail-item {
-  display: flex;
-  flex-direction: column;
-}
-
-.detail-label {
-  font-size: 0.65rem;
-  font-weight: 700;
-  color: #484f58;
-  letter-spacing: 0.5px;
-  margin-bottom: 4px;
-}
-
-.detail-value {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #c9d1d9;
-}
-
-.detail-value-price {
-  font-size: 1rem;
-  font-weight: 800;
-  color: #ea580c;
-}
-
-.ticket-card.completed {
-  padding: 1.25rem 1.5rem;
-  background: rgba(22, 27, 34, 0.3);
-  border-color: #21262d;
-}
-
-.ticket-card.completed .ticket-route {
-  border: none;
+.empty-state-card h3 {
+  font-size: 1.5rem;
   margin: 0;
-  padding: 0;
+  color: #ffffff;
 }
 
-.ticket-badge-completed {
-  font-size: 0.65rem;
+.empty-state-card p {
+  color: #8b949e;
+  max-width: 300px;
+}
+
+.btn-primary-pro {
+  background: #ea580c;
+  color: white;
+  border: none;
+  padding: 0.8rem 1.5rem;
+  border-radius: 8px;
   font-weight: 700;
-  color: #484f58;
-  border: 1px solid #30363d;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 1rem;
+  transition: background 0.2s;
 }
 
-.past-route-text {
-  font-weight: 600;
-  color: #8b949e;
-}
-
-.past-date-text {
-  font-size: 0.9rem;
-  color: #484f58;
-}
-
-.trips-loading {
-  text-align: center;
-  font-size: 1.2rem;
-  color: #8b949e;
-  padding-top: 5rem;
-}
-
-.trips-card-error {
-  max-width: 400px;
-  margin: 6rem auto;
-  background: #161b22;
-  border: 1px solid #30363d;
-  padding: 3rem 2rem;
-  border-radius: 1rem;
-  text-align: center;
-}
-
-.trips-card-error h2 {
-  margin: 0 0 1rem 0;
-  font-weight: 800;
-}
-
-.trips-card-error p {
-  color: #8b949e;
-  margin-bottom: 2rem;
-  font-size: 0.95rem;
-  line-height: 1.5;
+.btn-primary-pro:hover {
+  background: #c2410c;
 }

@@ -22,38 +22,34 @@ export const Navbar = () => {
         <span className="brand-name">EuroTransit</span>
       </div>
 
-      <nav className="header-nav">
-        <button 
-          className={getLinkClass('/catalog')} 
-          onClick={() => navigate('/catalog')}
-        >
-          Catalog
-        </button>
-        <button 
-          className={getLinkClass('/my-trips')} 
-          onClick={() => navigate('/my-trips')}
-        >
-          My Tickets
-        </button>
-        <button 
-          className={getLinkClass('/profile')} 
-          onClick={() => navigate('/profile')}
-        >
-          Profile
-        </button>
-      </nav>
+      <div className="header-right">
+        <nav className="header-nav">
+          <button 
+            className={getLinkClass('/catalog')} 
+            onClick={() => navigate('/catalog')}
+          >
+            Catalog
+          </button>
+          <button 
+            className={getLinkClass('/my-trips')} 
+            onClick={() => navigate('/my-trips')}
+          >
+            My Trips
+          </button>
+        </nav>
 
-      <div className="header-actions">
-        {keycloak?.authenticated ? (
-          <div className="user-profile">
-            <span className="user-greeting">
-              Welcome, <strong>{keycloak.tokenParsed?.preferred_username}</strong>
-            </span>
-            <button className="btn-logout" onClick={() => keycloak.logout()}>Logout</button>
-          </div>
-        ) : (
-          <button className="btn-signin" onClick={() => keycloak?.login()}>Sign In</button>
-        )}
+        <div className="header-actions">
+          {keycloak?.authenticated ? (
+            <div className="user-profile">
+              <span className="user-greeting">
+                Welcome, <strong>{keycloak.tokenParsed?.preferred_username}</strong>
+              </span>
+              <button className="btn-logout" onClick={() => keycloak.logout()}>Logout</button>
+            </div>
+          ) : (
+            <button className="btn-signin" onClick={() => keycloak?.login()}>Sign In</button>
+          )}
+        </div>
       </div>
     </header>
   );

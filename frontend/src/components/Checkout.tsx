@@ -21,6 +21,7 @@ export const Checkout = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bookingConfirmed, setBookingConfirmed] = useState(false);
+  const [cardData, setCardData] = useState({ number: '', expiry: '', cvc: '' });
 
   const multiplier = selectedClass === 'Business' ? 1.5 : 1.0;
   const totalAmount = pricePerPassenger * passengers * multiplier;
@@ -46,27 +47,15 @@ export const Checkout = () => {
         currency: 'EUR',
         userId: keycloak.tokenParsed?.sub
       }, {
-        headers: {
-          Authorization: `Bearer ${keycloak.token}`
-        }
+        headers: { Authorization: `Bearer ${keycloak.token}` }
       });
 
-      setIsSubmitting(false);
       setBookingConfirmed(true);
     } catch (err: any) {
+      setError(err.message || 'Failed to complete reservation.');
+    } finally {
       setIsSubmitting(false);
-      setError(err.message || 'Failed to complete reservation. Please try again.');
     }
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
   };
 
   if (bookingConfirmed) {
@@ -75,15 +64,10 @@ export const Checkout = () => {
         <div className="success-card">
           <div className="success-icon">✓</div>
           <h1>Booking Confirmed!</h1>
-          <p>Your train ticket is ready to use in your dashboard.</p>
-          <div className="button-group">
-            <button className="btn-secondary-pro" onClick={() => navigate('/catalog')}>
-              Back to Catalog
-            </button>
-            <button className="btn-confirm-booking" onClick={() => navigate('/my-trips')}>
-              Go to My Tickets
-            </button>
-          </div>
+          <p>Your ticket is ready in your trips.</p>
+          <button className="btn-confirm-booking" onClick={() => navigate('/my-trips')}>
+            Go to My Trips
+          </button>
         </div>
       </div>
     );
@@ -92,88 +76,30 @@ export const Checkout = () => {
   return (
     <div className="checkout-viewport">
       <div className="checkout-container">
-        <div className="checkout-header">
-          <h1>Confirm Your Journey</h1>
-          <p>Review details and complete your EuroTransit reservation.</p>
-        </div>
-
+        <h1>Confirm Your Journey</h1>
         {error && <div className="checkout-error-banner">{error}</div>}
-
+        
         <div className="checkout-grid">
           <div className="journey-summary-card">
-            <h2>Journey Summary</h2>
-            <div className="summary-route">
-              <span>{origin}</span>
-              <span className="summary-arrow">➔</span>
-              <span>{destination}</span>
-            </div>
-            <div className="summary-details">
-              <div className="summary-row">
-                <span>Train ID</span>
-                <strong>{trainId}</strong>
-              </div>
-              <div className="summary-row">
-                <span>Departure</span>
-                <strong>{formatDate(departure)}</strong>
-              </div>
-              <div className="summary-row">
-                <span>Passengers</span>
-                <strong>{passengers}</strong>
-              </div>
-            </div>
-
+            <h3>Journey</h3>
+            <div className="summary-route">{origin} ➔ {destination}</div>
             <div className="class-selector">
-              <h3>Select Class</h3>
-              <div className="class-options">
-                <button
-                  type="button"
-                  className={`class-btn ${selectedClass === 'Standard' ? 'active' : ''}`}
-                  onClick={() => setSelectedClass('Standard')}
-                >
-                  <span>Standard</span>
-                  <small>1x Rate</small>
-                </button>
-                <button
-                  type="button"
-                  className={`class-btn ${selectedClass === 'Business' ? 'active' : ''}`}
-                  onClick={() => setSelectedClass('Business')}
-                >
-                  <span>Business</span>
-                  <small>1.5x Rate</small>
-                </button>
-              </div>
+              <button className={`class-btn ${selectedClass === 'Standard' ? 'active' : ''}`} onClick={() => setSelectedClass('Standard')}>Standard</button>
+              <button className={`class-btn ${selectedClass === 'Business' ? 'active' : ''}`} onClick={() => setSelectedClass('Business')}>Business</button>
             </div>
           </div>
 
           <div className="payment-summary-card">
-            <h2>Price Breakdown</h2>
-            <div className="breakdown-row">
-              <span>Base rate ({passengers}x €{pricePerPassenger.toFixed(2)})</span>
-              <span>€{(pricePerPassenger * passengers).toFixed(2)}</span>
-            </div>
-            <div className="breakdown-row">
-              <span>Class upgrade ({selectedClass})</span>
-              <span>x{multiplier}</span>
-            </div>
-            <hr className="breakdown-divider" />
-            <div className="breakdown-total">
-              <span>Total Amount</span>
-              <span className="total-price">€{totalAmount.toFixed(2)}</span>
+            <h3>Payment Details</h3>
+            <input placeholder="Card Number (16 digits)" maxLength={16} value={cardData.number} onChange={(e) => setCardData({...cardData, number: e.target.value.replace(/\D/g, '')})} />
+            <div className="card-row">
+              <input placeholder="MM/YY" maxLength={5} value={cardData.expiry} onChange={(e) => setCardData({...cardData, expiry: e.target.value})} />
+              <input placeholder="CVC" maxLength={3} value={cardData.cvc} onChange={(e) => setCardData({...cardData, cvc: e.target.value.replace(/\D/g, '')})} />
             </div>
 
-            <button
-              className="btn-confirm-booking"
-              onClick={handleConfirmBooking}
-              disabled={isSubmitting}
-            >
+            <button className="btn-confirm-booking" onClick={handleConfirmBooking} disabled={isSubmitting || cardData.number.length < 16}>
               {isSubmitting ? 'Processing...' : `Pay €${totalAmount.toFixed(2)} & Book`}
             </button>
-            
-            {!keycloak.authenticated && (
-              <p className="login-hint">
-                * You will be redirected to login before confirming your booking.
-              </p>
-            )}
           </div>
         </div>
       </div>

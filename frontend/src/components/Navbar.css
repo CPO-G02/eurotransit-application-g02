@@ -34,9 +34,16 @@
   letter-spacing: -0.5px;
 }
 
+/* Contenidor que agrupa nav i accions a la dreta */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
 .header-nav {
   display: flex;
-  gap: 16px;
+  gap: 10px;
 }
 
 .nav-link {
@@ -45,7 +52,7 @@
   color: #8b949e;
   font-size: 0.95rem;
   font-weight: 600;
-  padding: 8px 18px;
+  padding: 8px 16px;
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -55,10 +62,6 @@
 .nav-link:hover {
   color: #ffffff;
   background: rgba(255, 255, 255, 0.05);
-}
-
-.nav-link:focus {
-  outline: none;
 }
 
 .nav-link.active {
@@ -80,7 +83,7 @@
 
 .user-greeting {
   color: #c9d1d9;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 .user-greeting strong {
@@ -100,7 +103,6 @@
 
 .btn-signin:hover {
   background-color: #c2410c;
-  transform: translateY(-1px);
 }
 
 .btn-logout {
@@ -112,7 +114,6 @@
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
 }
 
 .btn-logout:hover {
