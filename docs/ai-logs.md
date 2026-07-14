@@ -5,6 +5,63 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-14 19:30
+
+**Agent**
+
+Claude Opus 4.8
+
+**Task**
+
+Make `payment-gateway-sim` deployable — CI half. The service was registered in
+the justfile but excluded from CI's paths filter, so no image was ever built or
+pushed. That is the root reason it has never been deployable, and it had been
+flagged and left open since the 2026-07-10 entry.
+
+**Files Modified**
+
+- `.github/workflows/ci.yaml`
+
+**Summary**
+
+Added `payment-gateway-sim: 'backend/payment-gateway-sim/**'` to the
+`dorny/paths-filter` list. The existing matrix, ACR push
+(`eurotransit/payment-gateway-sim:latest` — slash form, per the naming that
+already caused one outage when hyphenated) and the `restartedAt` rollout bump
+then apply to it like any other service.
+
+Also quoted the yq key in the rollout step (`."<service>".restartedAt`) for the
+dashed service name.
+
+**Potential Risks**
+
+- The config repo must expose a values key named exactly `payment-gateway-sim`
+  (dashed), since CI bumps `restartedAt` by directory name. The companion config
+  PR renames it from `paymentGatewaySim`; without that rename, image pushes would
+  silently never roll this service's pods.
+- Merge order matters: this PR must land **before** the chart PR, otherwise the
+  chart deploys an image that does not exist in ACR (`ImagePullBackOff`).
+
+**Confidence**
+
+High — workflow YAML parses, and the yq expression was verified empirically
+against both a dashed and a plain key.
+
+**Notes**
+
+An earlier ai-log predicted the dashed name would break the unquoted yq
+expression. Tested against yq v4: it does **not** break — the unquoted form
+resolves the dashed key fine. The quoting was kept anyway as version-drift
+insurance, but the recorded prediction was wrong and is corrected here.
+
+The 401 that prompted this task does not come from this service: it has no
+security dependency at all (no spring-security, no SecurityConfig), and Payments
+calls it with no token. The 401 is Payments rejecting calls that lack a JWT with
+`aud=payments` — tracked separately as a Keycloak realm task.
+
+---
+
+
 ### 2026-07-13 13:30
 
 **Agent**
