@@ -46,7 +46,7 @@ class HttpPaymentGateway(
             // decision, so return the contract's circuit_breaker_open. Orders'
             // bounded retry absorbs transient blips.
             log.warn("event=gateway_unavailable order_id={} error={}", request.idempotencyKey, e.toString())
-            GatewayDecision.Declined("circuit_breaker_open")
+            GatewayDecision.Declined(CIRCUIT_BREAKER_OPEN)
         }
 
     private suspend fun callGateway(request: AuthorizeRequest): GatewayDecision {

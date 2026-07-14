@@ -30,10 +30,6 @@ import java.math.BigDecimal
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-// Fast, test-tuned circuit-breaker settings so opening it takes few calls; the
-// production values live in application.yaml. This validates the wiring: the
-// breaker opens on failures AND on slow calls, and the fallback returns
-// circuit_breaker_open.
 @Testcontainers
 @SpringBootTest(
     properties = [
@@ -102,8 +98,6 @@ class PaymentGatewayCircuitBreakerTest @Autowired constructor(
 
     @Test
     fun `opens on slow calls above the slow-call threshold`() {
-        // 500ms > slow-call-duration-threshold (200ms) but < timeout (2s):
-        // completes and is recorded as slow, not as a timeout error.
         gateway.stubFor(
             post(urlEqualTo("/gateway/charge"))
                 .willReturn(okJson("""{"decision":"AUTHORIZED"}""").withFixedDelay(500)),
