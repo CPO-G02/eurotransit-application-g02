@@ -689,3 +689,46 @@ Inventory, but it still needs local and CI verification.
 **Notes**
 
 No secrets were committed. Kafka events remain unchanged and do not carry JWTs.
+
+### 2026-07-14 22:52
+
+**Agent**
+
+Codex (GPT-5)
+
+**Task**
+
+Prepare application CI for immutable-digest progressive delivery.
+
+**Files Modified**
+
+- `.github/workflows/ci.yaml`
+- `docs/ai-logs.md`
+
+**Summary**
+
+Created `feature/canary` from the latest remote `dev`. Added Frontend change
+detection, conditional React/Vite lint and build gates, container builds on
+validation branches, main-only ACR publishing, strict registry digest
+verification, propagation of the digest into configuration `main`, and a bounded
+Git retry that fails after five unsuccessful pushes. The workflow remains
+compatible until `feature/frontend-updates` is merged.
+
+**Potential Risks**
+
+- The workflow has not run on GitHub yet, so repository secrets, runner tooling
+  and cross-repository write permission still require CI proof.
+- `actionlint` was not executed because downloading the tool was not authorized;
+  local YAML parsing and invariant checks passed.
+- The React branch has no test script; CI runs its declared lint and build
+  scripts without inventing a test command.
+
+**Confidence**
+
+High for branch conditions, digest propagation and compatibility with the
+inspected React branch. Medium until the first GitHub-hosted workflow run passes.
+
+**Notes**
+
+No image was pushed, no configuration repository was updated remotely, and no
+cluster-changing command was run.
