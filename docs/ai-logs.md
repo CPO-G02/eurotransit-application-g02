@@ -152,6 +152,85 @@ architecture-design.md §2, so no §19 escalation was required. No new dependenc
 
 ---
 
+### 2026-07-14 16:26
+
+**Agent**
+
+Claude Sonnet 5 via Claude Code
+
+**Task**
+
+Add `GET /api/v1/orders` (list the authenticated user's own orders, for the
+"My Trips" page) and get the whole booking flow actually working end-to-end
+on the unmerged `frontend` branch, which previously loaded but did nothing
+functional.
+
+**Files Modified**
+
+- backend/orders/.../controllers/OrderController.kt, repositories/Repositories.kt,
+  service/OrderService.kt, service/OrderServiceImpl.kt
+- frontend/src/components/{Catalog,Checkout,MyTrips}.tsx, types/eurotransit.ts,
+  keycloak.ts, App.tsx, nginx.conf
+- frontend/public/silent-check-sso.html (new)
+- docs/ai-logs.md (this entry)
+
+**Summary**
+
+Added the list endpoint (filters by JWT subject, reuses `OrderStatusResponse`).
+Rewrote `MyTrips.tsx` to match that real response shape instead of a fabricated
+one (no `ticket_id`/`origin`/`upcoming`-`completed` fields that don't exist).
+
+Found and fixed several real, independent bugs blocking the booking flow
+end-to-end: `Catalog.tsx` crashed on every load (`seatClasses`/`seatClass`
+camelCase vs the API's actual `seat_classes`/`class` snake_case - a genuine
+contract mismatch, not a typo); `Checkout.tsx`'s POST `/orders` payload didn't
+match `OrderRequest` at all (wrong field names, two required fields never
+sent); `keycloak.ts` pointed at realm `eurotransit-realm`/client
+`eurotransit-frontend`, neither of which exist (`eurotransit`/`frontend` do) -
+login was 404ing at the OIDC layer this entire time. Also fixed a real Safari-
+surfacing bug: `onLoad: 'check-sso'` had no `silentCheckSsoRedirectUri`, so
+every fresh page load did a full top-level redirect to Keycloak and back
+instead of a silent iframe check - looked exactly like an infinite loading
+spinner. Added `public/silent-check-sso.html` and wired it in; confirmed fixed
+in Chrome, Safari still reported broken and needs further investigation
+(suspected `SameSite` cookie behavior on Keycloak's session cookie).
+
+Deeper root cause found for a persistent 401 on order creation: Keycloak's
+realm-import is create-only (confirmed via its own job log: `Realm
+'eurotransit' already exists. Import skipped`) - `orders`/`inventory`/
+`orders-service` clients and the `orders-audience`/`inventory-audience`
+client-scopes had been in git for a while but never actually existed in the
+live realm. Created all of it directly via the Admin API (see config repo's
+log for detail) since the file-based import can't apply updates to an
+existing realm.
+
+Separately confirmed (not fixed - already documented as a known TODO in
+`backend/payments/CLAUDE.md`): Orders→Payments still 401s regardless, since
+the `orders-service` token has no `payments` audience and the service-token
+feature is disabled by default. Out of scope for this session.
+
+Manually built/pushed/deployed `frontend` and `orders` images directly to ACR
+several times (branch isn't merged, CI doesn't cover it) - hit and fixed an
+arm64/amd64 mismatch (`--platform linux/amd64` required when building on
+Apple Silicon for these amd64 nodes).
+
+**Potential Risks**
+
+- Safari still broken for reasons not yet identified.
+- Payments audience/service-token wiring still incomplete by design (see above).
+- All these image pushes were manual, not through `ci.yaml` - will be
+  superseded whenever `frontend` branch's own CI job gets added and this
+  branch is merged.
+
+**Confidence**
+
+High for the fixes actually verified (Catalog, Checkout payload, Keycloak
+realm/client names, GET /orders, silent-check-sso in Chrome) - each was
+reproduced broken and then confirmed fixed via a real login + booking attempt.
+Medium overall given Safari and Payments remain open.
+
+---
+
 
 **Agent**
 

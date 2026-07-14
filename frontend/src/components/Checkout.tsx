@@ -37,15 +37,14 @@ export const Checkout = () => {
 
     try {
       await api.post('/orders', {
-        trainId,
-        origin,
-        destination,
-        departure,
-        passengers,
-        seatClass: selectedClass,
-        totalAmount,
-        currency: 'EUR',
-        userId: keycloak.tokenParsed?.sub
+        idempotency_key: crypto.randomUUID(),
+        user_id: keycloak.tokenParsed?.sub,
+        user_email: keycloak.tokenParsed?.email,
+        train_id: trainId,
+        seat_class: selectedClass.toLowerCase(),
+        quantity: passengers,
+        amount: totalAmount,
+        currency: 'EUR'
       }, {
         headers: { Authorization: `Bearer ${keycloak.token}` }
       });

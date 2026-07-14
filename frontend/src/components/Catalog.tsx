@@ -70,7 +70,7 @@ export const Catalog = () => {
       passengers: passengers,
       price: standardPrice.toString()
     });
-    navigate(`/checkout/${train.trainId}?${params.toString()}`);
+    navigate(`/checkout/${train.train_id}?${params.toString()}`);
   };
 
   const handleSearchClick = (e: React.FormEvent) => {
@@ -176,13 +176,13 @@ export const Catalog = () => {
           <div className="trains-grid-container">
             <div className="trains-grid">
               {filteredProducts.map((train) => {
-                const standardPrice = train.seatClasses?.find(c => c.seatClass === "Standard")?.price || 0;
+                const standardPrice = train.seat_classes.find(c => c.class === "standard")?.price || 0;
                 const totalPrice = standardPrice * parseInt(passengers);
 
                 return (
-                  <div key={train.trainId} className="train-card">
+                  <div key={train.train_id} className="train-card">
                     <div className="train-card-header">
-                      <span className="train-id">{train.trainId}</span>
+                      <span className="train-id">{train.train_id}</span>
                       <span className="train-status">ON TIME</span>
                     </div>
                     <div className="train-route">

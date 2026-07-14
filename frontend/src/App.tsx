@@ -12,9 +12,10 @@ export default function App() {
   return (
     <ReactKeycloakProvider 
       authClient={keycloak}
-      initOptions={{ 
+      initOptions={{
         onLoad: 'check-sso',
-        checkLoginIframe: false
+        checkLoginIframe: false,
+        silentCheckSsoRedirectUri: window.location.origin + '/silent-check-sso.html'
       }}
     >
       <NotificationProvider>

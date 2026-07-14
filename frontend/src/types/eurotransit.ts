@@ -1,49 +1,54 @@
+// Field names here mirror the backend's actual wire contract (snake_case,
+// see backend/catalog/.../dto/CatalogDtos.kt and
+// backend/orders/.../dto/OrderRequest.kt's @JsonProperty annotations) -
+// not the Kotlin property names.
+
 export interface ProductsResponse {
   products: ProductResponse[];
 }
 
 export interface ProductResponse {
-  trainId: string;
+  train_id: string;
   origin: string;
   destination: string;
   departure: string;
-  seatClasses: SeatClassDto[];
+  seat_classes: SeatClassDto[];
 }
 
 export interface SeatClassDto {
-  seatClass: string;
+  class: string;
   price: number;
   currency: string;
   available: number;
 }
 
 export interface OrderRequest {
-  idempotencyKey: string;
-  userId: string;
-  userEmail: string;
-  trainId: string;
-  seatClass: string;
+  idempotency_key: string;
+  user_id: string;
+  user_email: string;
+  train_id: string;
+  seat_class: string;
   quantity: number;
   amount: number;
   currency: string;
 }
 
 export interface OrderResponse {
-  orderId: string;
+  order_id: string;
   status: string;
 }
 
 export interface OrderStatusResponse {
-  orderId: string;
+  order_id: string;
   status: string;
-  trainId: string;
-  seatClass: string;
+  train_id: string;
+  seat_class: string;
   quantity: number;
   amount: number;
   currency: string;
-  transactionId?: string;
-  createdAt?: string;
-  confirmedAt?: string;
+  transaction_id?: string;
+  created_at?: string;
+  confirmed_at?: string;
 }
 
 export interface ErrorResponse {
@@ -51,7 +56,7 @@ export interface ErrorResponse {
 }
 
 export interface OrderConflictResponse {
-  orderId: string;
+  order_id: string;
   status: string;
   message: string;
 }

@@ -1,62 +1,34 @@
 import { useEffect, useState } from 'react';
 import { useKeycloak } from '@react-keycloak/web';
-import { useNavigate } from 'react-router-dom';
+import api from '../api/client';
+import type { OrderStatusResponse } from '../types/eurotransit';
 import './MyTrips.css';
-
-interface Trip {
-  ticket_id: string;
-  train_id: string;
-  origin: string;
-  destination: string;
-  departure: string;
-  selected_class: string;
-  price: number;
-  currency: string;
-  status: 'upcoming' | 'completed';
-}
 
 export const MyTrips = () => {
   const { keycloak, initialized } = useKeycloak();
-  const navigate = useNavigate();
-  const [trips, setTrips] = useState<Trip[]>([]);
+  const [orders, setOrders] = useState<OrderStatusResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchTrips = async () => {
-      if (!initialized || !keycloak.authenticated) {
-        setLoading(false);
-        return;
-      }
+    if (!initialized || !keycloak.authenticated) {
+      setLoading(false);
+      return;
+    }
 
-      try {
-        setLoading(true);
-        const response = await fetch('https://g02.cpo2026.it/api/v1/orders', {
-          headers: {
-            'Authorization': `Bearer ${keycloak.token}`,
-            'Content-Type': 'application/json'
-          }
-        });
+    setLoading(true);
+    setError(null);
 
-        if (!response.ok) throw new Error('Error fetching trips');
-        const data: Trip[] = await response.json();
-        setTrips(data);
-      } catch (err) {
-        setError('Could not load your trips.');
-      } finally {
-        setLoading(false);
-      }
-    };
+    api.get<OrderStatusResponse[]>('/orders')
+      .then((response) => setOrders(response.data))
+      .catch((err) => setError(err.message || 'An unknown error occurred'))
+      .finally(() => setLoading(false));
+  }, [initialized, keycloak.authenticated]);
 
-    fetchTrips();
-  }, [initialized, keycloak.authenticated, keycloak.token]);
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' });
-  };
-
-  const formatTime = (dateString: string) => {
-    return new Date(dateString).toLocaleTimeString('ca-ES', { hour: '2-digit', minute: '2-digit' });
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   };
 
   if (!initialized || loading) return <div className="trips-loading">Loading dashboard...</div>;
@@ -75,44 +47,33 @@ export const MyTrips = () => {
       )}
 
       <div className="trips-section">
-        <h2 className="section-title">Upcoming Journeys</h2>
-        {trips.filter(t => t.status === 'upcoming').length === 0 ? (
-          <div className="empty-state-card">
-            <h3>No upcoming trips</h3>
-            <p>You haven't booked any journeys yet. Start your adventure today!</p>
-            <button className="btn-primary-pro" onClick={() => navigate('/catalog')}>Find a Train</button>
-          </div>
+        <h2 className="section-title">Your Orders</h2>
+        {orders.length === 0 ? (
+          <p className="no-trips">No orders found.</p>
         ) : (
           <div className="trips-grid">
-            {trips.filter(t => t.status === 'upcoming').map(trip => (
-              <div key={trip.ticket_id} className="ticket-card upcoming">
+            {orders.map(order => (
+              <div key={order.order_id} className={`ticket-card ${order.status.toLowerCase()}`}>
                 <div className="ticket-top">
-                  <span className="ticket-id">{trip.ticket_id}</span>
-                  <span className="ticket-badge-class">{trip.selected_class.toUpperCase()}</span>
-                </div>
-                <div className="ticket-route">
-                  <div className="station">
-                    <span className="station-code">{trip.origin.substring(0,3).toUpperCase()}</span>
-                    <span className="station-name">{trip.origin}</span>
-                  </div>
-                  <div className="route-line"><span className="plane-icon">➔</span></div>
-                  <div className="station alignment-right">
-                    <span className="station-code">{trip.destination.substring(0,3).toUpperCase()}</span>
-                    <span className="station-name">{trip.destination}</span>
-                  </div>
+                  <span className="ticket-id">{order.order_id}</span>
+                  <span className="ticket-badge-class">{order.status}</span>
                 </div>
                 <div className="ticket-details">
                   <div className="detail-item">
-                    <span className="detail-label">DATE</span>
-                    <span className="detail-value">{formatDate(trip.departure)}</span>
+                    <span className="detail-label">TRAIN</span>
+                    <span className="detail-value">{order.train_id}</span>
                   </div>
                   <div className="detail-item">
-                    <span className="detail-label">DEPARTURE</span>
-                    <span className="detail-value">{formatTime(trip.departure)}</span>
+                    <span className="detail-label">CLASS</span>
+                    <span className="detail-value">{order.seat_class} x{order.quantity}</span>
+                  </div>
+                  <div className="detail-item">
+                    <span className="detail-label">BOOKED</span>
+                    <span className="detail-value">{formatDate(order.created_at)}</span>
                   </div>
                   <div className="detail-item alignment-right">
                     <span className="detail-label">PRICE</span>
-                    <span className="detail-value-price">{trip.price} {trip.currency}</span>
+                    <span className="detail-value-price">{order.amount} {order.currency}</span>
                   </div>
                 </div>
               </div>
