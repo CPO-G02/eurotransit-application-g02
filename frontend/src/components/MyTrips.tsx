@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useKeycloak } from '@react-keycloak/web';
+import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
 import type { OrderStatusResponse } from '../types/eurotransit';
 import './MyTrips.css';
 
 export const MyTrips = () => {
   const { keycloak, initialized } = useKeycloak();
+  const navigate = useNavigate();
   const [orders, setOrders] = useState<OrderStatusResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +51,11 @@ export const MyTrips = () => {
       <div className="trips-section">
         <h2 className="section-title">Your Orders</h2>
         {orders.length === 0 ? (
-          <p className="no-trips">No orders found.</p>
+          <div className="empty-state-card">
+            <h3>No trips found</h3>
+            <p>You haven't booked any journeys yet. Start your adventure today!</p>
+            <button className="btn-primary-pro" onClick={() => navigate('/catalog')}>Find a Train</button>
+          </div>
         ) : (
           <div className="trips-grid">
             {orders.map(order => (

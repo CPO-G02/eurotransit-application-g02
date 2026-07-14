@@ -22,7 +22,7 @@ export const Catalog = () => {
   useEffect(() => {
     api.get<ProductsResponse>('/catalog/products')
       .then((response) => {
-        setProducts(response.data?.products || []);
+        setProducts(response.data.products || []);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -40,7 +40,7 @@ export const Catalog = () => {
     return unique.length > 0 ? unique : ['Roma', 'Milano', 'Torino', 'Parigi', 'Lyon', 'Zurich'];
   }, [products]);
 
-  const filteredProducts = products?.filter(p => {
+  const filteredProducts = products.filter(p => {
     const matchesOrigin = p.origin?.toLowerCase().includes(origin.toLowerCase());
     const matchesDestination = p.destination?.toLowerCase().includes(destination.toLowerCase());
     
