@@ -2,7 +2,6 @@ package it.polito.eurotransit.orders.client
 
 import com.github.tomakehurst.wiremock.client.WireMock.*
 import com.github.tomakehurst.wiremock.junit5.WireMockTest
-import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import it.polito.eurotransit.orders.client.ServiceTokenProvider
 import it.polito.eurotransit.orders.dto.InventoryReserveRequest
 import kotlinx.coroutines.runBlocking
@@ -18,7 +17,7 @@ import kotlin.system.measureTimeMillis
 class InventoryClientTest {
 
     private fun client(timeout: Duration = Duration.ofSeconds(2), token: ServiceTokenProvider? = null) =
-        InventoryClient(WebClient.builder(), CircuitBreakerRegistry.ofDefaults(), "http://localhost:8081", timeout, token)
+        InventoryClient(WebClient.builder(), "http://localhost:8081", inventoryTimeout = timeout, serviceTokenProvider = token)
 
     @Test
     fun `reserveSeats returns INSUFFICIENT_SEATS status on CONFLICT`() = runBlocking {

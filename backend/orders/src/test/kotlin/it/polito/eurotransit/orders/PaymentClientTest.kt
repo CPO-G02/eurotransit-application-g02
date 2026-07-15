@@ -2,7 +2,6 @@ package it.polito.eurotransit.orders.client
 
 import com.github.tomakehurst.wiremock.client.WireMock.*
 import com.github.tomakehurst.wiremock.junit5.WireMockTest
-import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import it.polito.eurotransit.orders.dto.PaymentAuthorizeRequest
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -10,19 +9,16 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.web.reactive.function.client.WebClient
 import java.math.BigDecimal
-import java.time.Duration
 
 @WireMockTest(httpPort = 8089)
 class PaymentClientTest {
 
     private lateinit var client: PaymentClient
 
-    private fun client(token: ServiceTokenProvider? = null) =
-        PaymentClient(WebClient.builder(), CircuitBreakerRegistry.ofDefaults(), "http://localhost:8089", Duration.ofSeconds(6), token)
-
     @BeforeEach
     fun setup() {
-        client = client()
+        val webClientBuilder = WebClient.builder()
+        client = PaymentClient(webClientBuilder, "http://localhost:8089")
     }
 
     @Test
@@ -46,6 +42,31 @@ class PaymentClientTest {
     }
 
     @Test
+    fun `authorizePayment treats HTTP 402 as declined business response`() = runBlocking {
+        stubFor(
+            post(urlEqualTo("/authorize"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(402)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""{"status":"DECLINED","reason":"insufficient_funds"}"""),
+                ),
+        )
+
+        val request = PaymentAuthorizeRequest(
+            idempotency_key = "ord-123",
+            user_id = "user-1",
+            amount = BigDecimal("50.00"),
+            currency = "EUR",
+        )
+
+        val response = client.authorizePayment(request)
+
+        assertEquals("DECLINED", response.status)
+        assertEquals("insufficient_funds", response.reason)
+    }
+
+    @Test
     fun `authorizePayment sends service account bearer token when enabled`() = runBlocking {
         val tokenProvider = ServiceTokenProvider(
             enabled = true,
@@ -54,7 +75,11 @@ class PaymentClientTest {
             clientSecret = "test-secret",
             scope = "",
         )
-        val client = client(tokenProvider)
+        val client = PaymentClient(
+            WebClient.builder(),
+            "http://localhost:8089",
+            serviceTokenProvider = tokenProvider,
+        )
 
         val request = PaymentAuthorizeRequest(
             idempotency_key = "ord-123",
