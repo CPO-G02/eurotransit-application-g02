@@ -11,11 +11,11 @@ export const Catalog = () => {
   const location = useLocation();
   const [products, setProducts] = useState<ProductResponse[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  
+
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
   const [departureDate, setDepartureDate] = useState('');
-  const [passengers, setPassengers] = useState('1');
+  const [passengers, setPassengers] = useState(1);
 
   const isLanding = location.pathname === '/';
 
@@ -43,7 +43,7 @@ export const Catalog = () => {
   const filteredProducts = products.filter(p => {
     const matchesOrigin = p.origin?.toLowerCase().includes(origin.toLowerCase());
     const matchesDestination = p.destination?.toLowerCase().includes(destination.toLowerCase());
-    
+
     let matchesDate = true;
     if (departureDate) {
       const productDate = p.departure?.split('T')[0];
@@ -53,27 +53,45 @@ export const Catalog = () => {
     return matchesOrigin && matchesDestination && matchesDate;
   }) || [];
 
-  const formatDate = (dateString: string) => {
+  const formatTime = (dateString: string) => {
+    if (!dateString) return '--:--';
+    return new Date(dateString).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const formatDateShort = (dateString: string) => {
     if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    return new Date(dateString).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' });
+  };
+
+  const handleSwap = () => {
+    setOrigin(destination);
+    setDestination(origin);
+  };
+
+  const adjustPassengers = (delta: number) => {
+    setPassengers((prev) => Math.min(6, Math.max(1, prev + delta)));
   };
 
   const handleBookClick = (train: ProductResponse, standardPrice: number) => {
+    const params = new URLSearchParams({
+      origin: train.origin,
+      destination: train.destination,
+      departure: train.departure,
+      passengers: passengers.toString(),
+      price: standardPrice.toString()
+    });
+    const targetUrl = `/checkout/${train.train_id}?${params.toString()}`;
+
     if (!initialized || !keycloak.authenticated) {
+      sessionStorage.setItem('post_login_redirect', targetUrl);
       keycloak.login();
       return;
     }
-    const params = new URLSearchParams({
-      origin: train.origin || '',
-      destination: train.destination || '',
-      departure: train.departure || '',
-      passengers: passengers,
-      price: standardPrice.toString()
-    });
-    navigate(`/checkout/${train.train_id}?${params.toString()}`);
+
+    navigate(targetUrl);
   };
 
-  const handleSearchClick = (e: React.FormEvent) => {
+  const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (isLanding) {
       navigate('/catalog');
@@ -83,41 +101,30 @@ export const Catalog = () => {
   return (
     <div className={`catalog-viewport ${isLanding ? 'landing-mode' : 'catalog-mode'}`}>
       {isLanding && (
-        <div className="catalog-hero">
-          <div className="train-track-bg">
-            <svg viewBox="0 0 1200 200" className="static-train-svg" xmlns="http://www.w3.org/2000/svg">
-              <line x1="0" y1="160" x2="1200" y2="160" stroke="#30363d" strokeWidth="4" />
-              <path d="M 0,60 L 850,60 C 1020,60 1130,100 1180,150 L 0,150 Z" fill="#161b22" stroke="#30363d" strokeWidth="2" />
-              <path d="M 0,85 L 830,85 C 950,85 1040,105 1100,130 L 0,130 Z" fill="#0d1117" />
-              <line x1="150" y1="85" x2="150" y2="130" stroke="#161b22" strokeWidth="8" />
-              <line x1="300" y1="85" x2="300" y2="130" stroke="#161b22" strokeWidth="8" />
-              <line x1="450" y1="85" x2="450" y2="130" stroke="#161b22" strokeWidth="8" />
-              <line x1="600" y1="85" x2="600" y2="130" stroke="#161b22" strokeWidth="8" />
-              <line x1="750" y1="85" x2="750" y2="130" stroke="#161b22" strokeWidth="8" />
-              <line x1="900" y1="90" x2="900" y2="130" stroke="#161b22" strokeWidth="8" />
-              <path d="M 0,136 L 1110,136 C 1130,136 1150,142 1165,150 L 0,150 Z" fill="#ea580c" />
-            </svg>
-          </div>
-          <div className="hero-text">
+        <section className="catalog-hero">
+          <div className="hero-content">
             <span className="hero-tag">EUROTRANSIT HIGH-SPEED NETWORK</span>
-            <h1>NEXT STOP, WHEREVER.</h1>
-            <p>High-speed comfort between Europe's great cities, at fares that make sense. Pick your train, choose your seats, and you're ready to go.</p>
+            <h1 className="hero-title">Engineered<br />to arrive.</h1>
+            <p className="hero-subtitle">
+              Live schedules across Europe's high-speed lines, booked in the time
+              it takes to read this. Pick your train, lock your seat, done.
+            </p>
           </div>
-        </div>
+        </section>
       )}
 
       <main className="catalog-content">
-        <form className="search-widget-card" onSubmit={handleSearchClick}>
-          <div className="search-form-grid">
+        <form className="search-widget" onSubmit={handleSearchSubmit}>
+          <div className="search-grid">
             <div className="input-group">
               <label htmlFor="origin-input">From</label>
-              <input 
+              <input
                 id="origin-input"
-                type="text" 
+                type="text"
                 list="origins-list"
-                placeholder="Any city" 
-                value={origin} 
-                onChange={(e) => setOrigin(e.target.value)} 
+                placeholder="Any city"
+                value={origin}
+                onChange={(e) => setOrigin(e.target.value)}
               />
               <datalist id="origins-list">
                 {availableOrigins.map((city, idx) => (
@@ -126,15 +133,21 @@ export const Catalog = () => {
               </datalist>
             </div>
 
+            <button type="button" className="btn-swap" onClick={handleSwap} aria-label="Swap origin and destination">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M7 7h13l-4-4M17 17H4l4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
             <div className="input-group">
               <label htmlFor="destination-input">To</label>
-              <input 
+              <input
                 id="destination-input"
-                type="text" 
+                type="text"
                 list="destinations-list"
-                placeholder="Any city" 
-                value={destination} 
-                onChange={(e) => setDestination(e.target.value)} 
+                placeholder="Any city"
+                value={destination}
+                onChange={(e) => setDestination(e.target.value)}
               />
               <datalist id="destinations-list">
                 {availableDestinations.map((city, idx) => (
@@ -144,69 +157,75 @@ export const Catalog = () => {
             </div>
 
             <div className="input-group">
-              <label>Departure Date</label>
-              <input type="date" value={departureDate} onChange={(e) => setDepartureDate(e.target.value)} />
+              <label htmlFor="date-input">Departure Date</label>
+              <input id="date-input" type="date" value={departureDate} onChange={(e) => setDepartureDate(e.target.value)} />
             </div>
 
             <div className="input-group">
               <label>Passengers</label>
-              <select value={passengers} onChange={(e) => setPassengers(e.target.value)}>
-                <option value="1">1 Passenger</option>
-                <option value="2">2 Passengers</option>
-                <option value="3">3 Passengers</option>
-                <option value="4">4 Passengers</option>
-              </select>
+              <div className="stepper">
+                <button type="button" onClick={() => adjustPassengers(-1)} disabled={passengers <= 1} aria-label="Remove passenger">&minus;</button>
+                <span>{passengers}</span>
+                <button type="button" onClick={() => adjustPassengers(1)} disabled={passengers >= 6} aria-label="Add passenger">+</button>
+              </div>
             </div>
 
             <div className="input-group search-btn-group">
               <label className="spacer-label">&nbsp;</label>
-              <button type="submit" className="btn-search-trains">
-                🔍 Search trains
+              <button type="submit" className="btn-search">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+                  <path d="M21 21l-4.3-4.3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                Search trains
               </button>
             </div>
           </div>
         </form>
 
-        <div className="results-section-header">
-          <span className="section-pre-title">{isLanding ? "DEPARTURES" : "TRAINS"}</span>
-          <h2>{isLanding ? "TODAY ON THE NETWORK" : "ALL CONNECTIONS"} ({filteredProducts.length})</h2>
-        </div>
+        <header className="results-header">
+          <div>
+            <span className="section-pre-title">{isLanding ? "DEPARTURES" : "TRAINS"}</span>
+            <h2>{isLanding ? "Today on the network" : "All connections"}</h2>
+          </div>
+          <span className="results-count">{filteredProducts.length} of {products.length} connections</span>
+        </header>
 
-        {loading ? <div className="loading-state">Searching available trains...</div> : (
-          <div className="trains-grid-container">
-            <div className="trains-grid">
-              {filteredProducts.map((train) => {
-                const standardPrice = train.seat_classes.find(c => c.class === "standard")?.price || 0;
-                const totalPrice = standardPrice * parseInt(passengers);
+        {loading ? <div className="loading-state">Synchronizing with rail network...</div> : (
+          <div className="trains-list">
+            {filteredProducts.map((train) => {
+              const standardPrice = train.seat_classes?.find(c => c.class === "standard")?.price || 0;
+              const totalPrice = standardPrice * passengers;
 
-                return (
-                  <div key={train.train_id} className="train-card">
-                    <div className="train-card-header">
-                      <span className="train-id">{train.train_id}</span>
-                      <span className="train-status">ON TIME</span>
+              return (
+                <div key={train.train_id} className="train-row">
+                  <div className="row-time">
+                    <span className="row-time-value">{formatTime(train.departure)}</span>
+                    <span className="row-time-date">{formatDateShort(train.departure)}</span>
+                  </div>
+
+                  <div className="row-route">
+                    <div className="row-route-line">
+                      <span className="row-station">{train.origin}</span>
+                      <span className="row-arrow">&rarr;</span>
+                      <span className="row-station">{train.destination}</span>
                     </div>
-                    <div className="train-route">
-                      <span className="station-name">{train.origin}</span>
-                      <span className="route-arrow">➔</span>
-                      <span className="station-name">{train.destination}</span>
+                    <div className="row-meta">
+                      <span className="mono row-id">{train.train_id}</span>
+                      <span className="row-status-pill">On schedule</span>
                     </div>
-                    <div className="train-details">
-                      <div className="detail-item">
-                        <span className="detail-label">DEPARTURE</span>
-                        <span className="detail-value">{formatDate(train.departure)}</span>
-                      </div>
-                      <div className="detail-item">
-                        <span className="detail-label">TOTAL PRICE</span>
-                        <span className="price-value">€{totalPrice.toFixed(2)}</span>
-                      </div>
-                    </div>
-                    <button className="btn-book" onClick={() => handleBookClick(train, standardPrice)}>
-                      {initialized && keycloak.authenticated ? "Select Seat" : "Login to Book"}
+                  </div>
+
+                  <div className="row-price-block">
+                    <span className="row-price">€{totalPrice.toFixed(2)}</span>
+                    <span className="row-price-sub">total &middot; {passengers}x €{standardPrice.toFixed(2)}</span>
+                    <button className="btn-book-row" onClick={() => handleBookClick(train, standardPrice)}>
+                      {initialized && keycloak.authenticated ? "Select" : "Sign in to book"}
                     </button>
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </main>

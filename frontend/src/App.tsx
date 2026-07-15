@@ -1,36 +1,37 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { ReactKeycloakProvider } from '@react-keycloak/web';
-import { Toaster } from 'react-hot-toast';
-import keycloak from './keycloak';
+import { useEffect } from 'react';
+import { Routes, Route, useNavigate } from 'react-router-dom';
+import { useKeycloak } from '@react-keycloak/web';
+import { Navbar } from './components/Navbar';
 import { Catalog } from './components/Catalog';
 import { MyTrips } from './components/MyTrips';
 import { Checkout } from './components/Checkout';
-import { AppLayout } from './components/AppLayout';
-import { NotificationProvider } from './components/NotificationProvider';
+import './App.css';
 
-export default function App() {
+export const App = () => {
+  const { keycloak, initialized } = useKeycloak();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (initialized && keycloak.authenticated) {
+      const pendingRedirect = sessionStorage.getItem('post_login_redirect');
+      if (pendingRedirect) {
+        sessionStorage.removeItem('post_login_redirect');
+        navigate(pendingRedirect);
+      }
+    }
+  }, [initialized, keycloak.authenticated, navigate]);
+
   return (
-    <ReactKeycloakProvider 
-      authClient={keycloak}
-      initOptions={{
-        onLoad: 'check-sso',
-        checkLoginIframe: false,
-        silentCheckSsoRedirectUri: window.location.origin + '/silent-check-sso.html'
-      }}
-    >
-      <NotificationProvider>
-        <Toaster />
-        <Router>
-          <Routes>
-            <Route path="/" element={<Catalog />} />
-            <Route element={<AppLayout />}>
-              <Route path="/catalog" element={<Catalog />} />
-              <Route path="/my-trips" element={<MyTrips />} />
-              <Route path="/checkout/:trainId" element={<Checkout />} />
-            </Route>
-          </Routes>
-        </Router>
-      </NotificationProvider>
-    </ReactKeycloakProvider>
+    <div className="app-layout">
+      <Navbar />
+      <main className="app-main-content">
+        <Routes>
+          <Route path="/" element={<Catalog />} />
+          <Route path="/catalog" element={<Catalog />} />
+          <Route path="/my-trips" element={<MyTrips />} />
+          <Route path="/checkout/:trainId" element={<Checkout />} />
+        </Routes>
+      </main>
+    </div>
   );
-}
+};

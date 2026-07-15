@@ -1,10 +1,13 @@
-.catalog-header {
+.site-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 3rem;
-  background-color: #161b22;
-  border-bottom: 1px solid #30363d;
+  height: var(--nav-height);
+  padding: 0 2rem;
+  background-color: rgba(10, 14, 21, 0.86);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-subtle);
   width: 100%;
   box-sizing: border-box;
   position: sticky;
@@ -15,59 +18,73 @@
 .header-brand {
   display: flex;
   align-items: center;
+  gap: 0.65rem;
+  background: none;
+  border: none;
+  padding: 0;
   cursor: pointer;
 }
 
-.brand-accent-line {
-  display: inline-block;
-  width: 4px;
-  height: 22px;
-  background-color: #ea580c;
-  border-radius: 2px;
-  margin-right: 12px;
+.brand-mark {
+  display: flex;
+  color: var(--text-secondary);
+  transition: color 0.15s ease;
+}
+
+.header-brand:hover .brand-mark {
+  color: var(--accent);
 }
 
 .brand-name {
-  font-size: 1.3rem;
-  font-weight: 800;
-  color: #ffffff;
-  letter-spacing: -0.5px;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.3px;
 }
 
-/* Contenidor que agrupa nav i accions a la dreta */
+.brand-name-a {
+  color: #ffffff;
+}
+
+.brand-name-b {
+  color: var(--accent);
+}
+
 .header-right {
   display: flex;
   align-items: center;
-  gap: 2rem;
+  gap: 2.5rem;
 }
 
 .header-nav {
   display: flex;
-  gap: 10px;
+  gap: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  padding: 3px;
+  border-radius: 10px;
 }
 
 .nav-link {
   background: transparent;
   border: 1px solid transparent;
-  color: #8b949e;
-  font-size: 0.95rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
   font-weight: 600;
-  padding: 8px 16px;
-  border-radius: 8px;
+  padding: 7px 16px;
+  border-radius: 7px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  outline: none;
+  transition: all 0.15s ease;
 }
 
 .nav-link:hover {
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.05);
 }
 
 .nav-link.active {
   color: #ffffff;
-  background: rgba(234, 88, 12, 0.15);
-  border: 1px solid rgba(234, 88, 12, 0.3);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
 }
 
 .header-actions {
@@ -78,46 +95,75 @@
 .user-profile {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
 }
 
 .user-greeting {
-  color: #c9d1d9;
-  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
 }
 
 .user-greeting strong {
   color: #ffffff;
+  font-weight: 600;
+}
+
+.session-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-green);
+  box-shadow: 0 0 0 3px var(--status-green-dim);
+  flex-shrink: 0;
 }
 
 .btn-signin {
-  background-color: #ea580c;
+  background-color: var(--accent);
   color: #ffffff;
   border: none;
-  padding: 8px 20px;
-  border-radius: 8px;
+  padding: 8px 18px;
+  border-radius: 7px;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.15s ease;
 }
 
 .btn-signin:hover {
-  background-color: #c2410c;
+  background-color: var(--accent-hover);
 }
 
 .btn-logout {
   background-color: transparent;
-  border: 1px solid #30363d;
-  color: #c9d1d9;
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
   padding: 6px 14px;
   border-radius: 6px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .btn-logout:hover {
-  background-color: #21262d;
+  background-color: var(--bg-surface);
   color: #ffffff;
-  border-color: #8b949e;
+  border-color: var(--border-hover);
+}
+
+@media (max-width: 640px) {
+  .site-header {
+    padding: 0 1.25rem;
+  }
+
+  .header-right {
+    gap: 1rem;
+  }
+
+  .user-greeting span {
+    display: none;
+  }
 }
