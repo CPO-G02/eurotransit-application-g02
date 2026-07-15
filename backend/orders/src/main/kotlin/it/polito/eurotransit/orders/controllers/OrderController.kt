@@ -7,11 +7,36 @@ import it.polito.eurotransit.orders.dto.OrderStatusResponse
 import it.polito.eurotransit.orders.service.OrderService
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.security.core.annotation.AuthenticationPrincipal
+import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.*
 
 @RestController
 @RequestMapping("/api/v1/orders")
 class OrderController(private val orderService: OrderService) {
+
+    // list the authenticated user's own orders
+    @GetMapping
+    suspend fun listOrders(@AuthenticationPrincipal jwt: Jwt): ResponseEntity<List<OrderStatusResponse>> {
+        val orders = orderService.getOrdersForUser(requireNotNull(jwt.subject))
+            .sortedByDescending { it.createdAt }
+            .map { order ->
+                OrderStatusResponse(
+                    orderId = order.orderId,
+                    status = order.status,
+                    trainId = order.trainId,
+                    seatClass = order.seatClass,
+                    quantity = order.quantity,
+                    amount = order.amount,
+                    currency = order.currency,
+                    transactionId = order.transactionId,
+                    createdAt = order.createdAt,
+                    confirmedAt = order.confirmedAt
+                )
+            }
+
+        return ResponseEntity.ok(orders)
+    }
 
     // handle order creation natively with coroutines
     @PostMapping
