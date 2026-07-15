@@ -21,6 +21,7 @@ shedding: HTTP 429 when overloaded" for Orders.
 - `backend/orders/src/main/kotlin/.../config/OrdersBackpressureConfig.kt`
 - `backend/orders/src/main/resources/application.yaml`
 - `backend/orders/src/test/kotlin/.../OrdersBackpressureConfigTest.kt`
+- `tools/k6/orders-load-shedding.js`
 - `docs/ai-logs.md`
 
 **Summary**
@@ -36,11 +37,17 @@ R2DBC pool shape (`max-size: 10`) with small burst headroom. The companion
 configuration-repo change renders the same policy through
 `orders.springApplicationJson` so Argo CD owns the runtime value.
 
+Added a k6 script for authenticated `POST /api/v1/orders` load. It requires
+`AUTH_TOKEN` from the environment and does not fetch or store credentials.
+
 **Validation**
 
 Focused unit tests cover the 429 path and verify non-create order requests bypass
 the filter. Full validation requires running the Orders test suite and then
-observing `429` behavior under controlled live load.
+observing `429` behavior under controlled live load. A Dockerized k6 runtime was
+pulled and the script was executed without `AUTH_TOKEN`; it correctly failed fast
+instead of using embedded credentials. The authenticated live load run still
+requires an externally supplied Orders-audience token.
 
 **Potential Risks**
 
