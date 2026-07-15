@@ -6,6 +6,9 @@ on:
       - main
       - dev
       - test-ci-pipelines
+
+permissions:
+  contents: read
   
 jobs:
   detect-changes:
@@ -18,7 +21,6 @@ jobs:
         id: filter
         with:
           # output changed services as json
-          list-tags: 'json'
           filters: |
             frontend: 'frontend/**'
             catalog: 'backend/catalog/**'
@@ -55,21 +57,16 @@ jobs:
           cd backend/${{ matrix.service }}
           chmod +x gradlew
           ./gradlew build
-          ./gradlew test
 
-      # feature/frontend-updates contains the React/Vite source. Keep this
-      # workflow compatible until that branch reaches dev: the Node steps are
-      # enabled as soon as its lockfile is present, while the Docker build below
-      # continues to validate the current legacy Frontend in the meantime.
       - uses: actions/setup-node@v4
-        if: ${{ matrix.service == 'frontend' && hashFiles('frontend/package-lock.json') != '' }}
+        if: ${{ matrix.service == 'frontend' }}
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: lint and build frontend
-        if: ${{ matrix.service == 'frontend' && hashFiles('frontend/package-lock.json') != '' }}
+        if: ${{ matrix.service == 'frontend' }}
         working-directory: frontend
         run: |
           npm ci
@@ -120,6 +117,29 @@ jobs:
 
           echo "IMAGE_DIGEST=$live_digest" >> "$GITHUB_ENV"
 
+      - name: install pinned yq
+        if: ${{ github.ref == 'refs/heads/main' }}
+        env:
+          YQ_VERSION: v4.53.2
+        run: |
+          install_dir="$RUNNER_TEMP/yq-$YQ_VERSION"
+          mkdir -p "$install_dir"
+
+          curl --fail --location --silent --show-error \
+            "https://github.com/mikefarah/yq/releases/download/$YQ_VERSION/yq_linux_amd64" \
+            --output "$install_dir/yq_linux_amd64"
+          curl --fail --location --silent --show-error \
+            "https://github.com/mikefarah/yq/releases/download/$YQ_VERSION/checksums" \
+            --output "$install_dir/checksums"
+
+          cd "$install_dir"
+          grep -E '[[:space:]]yq_linux_amd64$' checksums | sha256sum --check --strict
+          mv yq_linux_amd64 yq
+          chmod +x yq
+
+          echo "$install_dir" >> "$GITHUB_PATH"
+          ./yq --version
+
       # checkout config
       - uses: actions/checkout@v4
         if: ${{ github.ref == 'refs/heads/main' }}
@@ -140,19 +160,37 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          if [ "${{ matrix.service }}" != "notifications" ]; then
-            IMAGE_DIGEST="$IMAGE_DIGEST" yq -i '.${{ matrix.service }}.image.digest = strenv(IMAGE_DIGEST)' deploy/charts/eurotransit/values.yaml
-          fi
+          restarted_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)-${{ github.sha }}"
 
-          yq -i ".${{ matrix.service }}.restartedAt = \"$(date -u +%Y-%m-%dT%H:%M:%SZ)-${{ github.sha }}\"" deploy/charts/eurotransit/values.yaml
-
-          git add deploy/charts/eurotransit/values.yaml
-          git commit -m "chore: deploy ${{ matrix.service }} image for ${{ github.sha }}" || echo "no changes"
-
-          # Matrix jobs can update different services concurrently. Rebase and
-          # retry boundedly, but never report success if every push failed.
+          # Matrix jobs can update the same values file concurrently. Start each
+          # attempt from the latest main and reapply this service's update so a
+          # rejected push never leaves the next retry in a conflicted rebase.
           for attempt in 1 2 3 4 5; do
-            if git pull --rebase origin main && git push origin HEAD:main; then
+            if ! git fetch origin main; then
+              if [ "$attempt" -lt 5 ]; then
+                sleep 5
+                continue
+              fi
+              break
+            fi
+
+            git reset --hard origin/main
+
+            if [ "${{ matrix.service }}" != "notifications" ]; then
+              IMAGE_DIGEST="$IMAGE_DIGEST" yq -i '.${{ matrix.service }}.image.digest = strenv(IMAGE_DIGEST)' deploy/charts/eurotransit/values.yaml
+            fi
+
+            RESTARTED_AT="$restarted_at" yq -i '.${{ matrix.service }}.restartedAt = strenv(RESTARTED_AT)' deploy/charts/eurotransit/values.yaml
+
+            git add deploy/charts/eurotransit/values.yaml
+            if git diff --cached --quiet; then
+              echo "Configuration already contains the requested update"
+              exit 0
+            fi
+
+            git commit -m "chore: deploy ${{ matrix.service }} image for ${{ github.sha }}"
+
+            if git push origin HEAD:main; then
               exit 0
             fi
 
