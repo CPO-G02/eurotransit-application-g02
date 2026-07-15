@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.http.HttpStatus
+import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.ClientRequest
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction
@@ -24,6 +25,7 @@ import java.time.Duration
 @Component
 class InventoryClient(
     webClientBuilder: WebClient.Builder,
+    circuitBreakerRegistry: CircuitBreakerRegistry,
     @Value("\${app.inventory.url}") private val inventoryUrl: String,
     @Value("\${resilience4j.timelimiter.instances.inventory-client.timeout-duration:2s}")
     private val inventoryTimeout: Duration = Duration.ofSeconds(2),
@@ -70,9 +72,48 @@ class InventoryClient(
             } else {
                 logger.error("Unexpected error calling inventory for order ${request.idempotency_key}: ${e.message}")
                 throw e
+    @Value("\${app.inventory.timeout:2s}") timeout: Duration,
+    private val serviceTokenProvider: ServiceTokenProvider? = null
+) {
+    private val logger = LoggerFactory.getLogger(javaClass)
+
+    // responseTimeout turns a hung Inventory into a failed call the breaker can
+    // record; without it the coroutine suspends forever and no outcome is ever
+    // seen. Mirrors payments' HttpPaymentGateway.
+    private val webClient = webClientBuilder
+        .baseUrl(inventoryUrl)
+        .clientConnector(ReactorClientHttpConnector(HttpClient.create().responseTimeout(timeout)))
+        .filter(bearerTokenFilter())
+        .build()
+
+    // Programmatic, not @CircuitBreaker: the annotation aspect is a no-op on
+    // suspend functions (no aspectjweaver on the classpath, and the 2.2.0 aspect
+    // records success the moment a coroutine suspends). See docs/ai-logs.md.
+    private val circuitBreaker = circuitBreakerRegistry.circuitBreaker("inventory-client")
+
+    suspend fun reserveSeats(request: InventoryReserveRequest): InventoryReserveResponse =
+        circuitBreaker.executeSuspendFunction {
+            logger.info("Requesting inventory reservation for order ${request.idempotency_key}")
+
+            try {
+                webClient.post()
+                    .uri("/reserve")
+                    .bodyValue(request)
+                    .retrieve()
+                    .awaitBody<InventoryReserveResponse>()
+            } catch (e: WebClientResponseException) {
+                if (e.statusCode == HttpStatus.CONFLICT) {
+                    // 409 = sold out: a valid business answer, handled inside the
+                    // breaker block so it counts as a successful call, not a fault.
+                    logger.warn("Reservation failed for order ${request.idempotency_key}: Insufficient seats")
+                    e.getResponseBodyAs(InventoryReserveResponse::class.java)
+                        ?: InventoryReserveResponse(status = "INSUFFICIENT_SEATS")
+                } else {
+                    logger.error("Unexpected error calling inventory for order ${request.idempotency_key}: ${e.message}")
+                    throw e
+                }
             }
         }
-    }
 
     private fun bearerTokenFilter(): ExchangeFilterFunction {
         return ExchangeFilterFunction.ofRequestProcessor { request ->
