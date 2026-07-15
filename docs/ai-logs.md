@@ -5,6 +5,141 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-15 18:10
+
+**Agent**
+
+Claude Opus 4.8
+
+**Task**
+
+Fix the Orders downstream resilience gap exposed by config PR #22's chaos review:
+`InventoryClient` and `PaymentClient` had `@CircuitBreaker` but no HTTP response
+timeout, so a hung/partitioned downstream left the coroutine suspended forever
+and the breaker never recorded an outcome — it could never open.
+
+**Files Modified**
+
+- `backend/orders/src/main/kotlin/.../client/InventoryClient.kt`
+- `backend/orders/src/main/kotlin/.../client/PaymentClient.kt`
+- `backend/orders/src/main/kotlin/.../config/WebClientConfig.kt`
+- `backend/orders/src/main/resources/application.yaml`
+- `backend/orders/src/test/kotlin/.../InventoryClientTest.kt`
+- `backend/orders/src/test/kotlin/.../PaymentClientTest.kt`
+- `backend/orders/src/test/kotlin/.../OrdersClientCircuitBreakerTest.kt` (new)
+
+**Summary**
+
+Added a Reactor Netty `responseTimeout` to both WebClients (inventory 2s,
+payments 6s — the latter exceeds Payments' own 5s gateway timeout) fed by new
+`app.inventory.timeout` / `app.payments.timeout` keys. Removed the inert
+`resilience4j.timelimiter` block (no `@TimeLimiter` ever wired it) and added
+`minimum-number-of-calls: 5` to both circuit-breaker instances.
+
+Switched both clients from the `@CircuitBreaker` annotation to the **programmatic**
+`circuitBreakerRegistry.circuitBreaker(name).executeSuspendFunction { ... }` used
+by payments' `HttpPaymentGateway`. Discovered while designing the fix that the
+annotation was completely inert: no `aspectjweaver` on the runtime classpath, and
+even with it the resilience4j 2.2.0 aspect records success the moment a suspend
+function suspends. Instance names (`inventory-client`, `payments-client`) are
+unchanged, so the yaml/GitOps config still binds.
+
+Also fixed the Orders→Payments 402 handling (mistake-log entry #4): a genuine
+card decline is now caught inside the breaker block, its real `reason` propagated,
+and counted as a successful call — so a burst of declines can no longer trip the
+breaker. The `WebClientConfig` builder bean is now prototype-scoped (it was a
+mutated singleton shared by both clients).
+
+**Validation**
+
+- `./gradlew clean test` — full Orders suite green (17 tests, 0 failures).
+- New `OrdersClientCircuitBreakerTest`: a hung downstream is recorded as a failure
+  and opens the breaker after 5 calls (`numberOfFailedCalls == 5`), the 6th is
+  short-circuited (`CallNotPermittedException`); a 402 keeps the breaker CLOSED
+  (`numberOfFailedCalls == 0`) with the real reason. This test fails against the
+  old annotation approach, which is the proof the programmatic switch was needed.
+
+**Potential Risks**
+
+- Behavior change now that the breaker+fallback are actually active: a Payments
+  503/timeout now returns DECLINED → payment-failed (compensation) instead of
+  propagating an exception to Stage 2. This is what architecture-design.md §2
+  prescribes ("fallback = treat as declined"); the old path was the non-compliant
+  one — but it is a real runtime change to call out on deploy.
+- `resilience4j.retry` (bounded retry + jitter, wanted by the architecture on
+  these edges) is still inert — out of scope here, a tracked follow-up.
+
+**Confidence**
+
+High for the timeout + programmatic-breaker fix and its tests. Medium on the
+retry gap remaining, which is deliberately deferred.
+
+**Notes**
+
+Companion config PR removes the mirrored inert `timelimiter` block from
+`orders.springApplicationJson` and adds the two `app.*.timeout` keys. Also
+surfaced (out of scope): the four `kafka/Stage*ConsumerTest` classes compile but
+are never discovered/run by Gradle — pre-existing, identical to `dev`.
+
+---
+
+### 2026-07-14 19:30
+
+**Agent**
+
+Claude Opus 4.8
+
+**Task**
+
+Make `payment-gateway-sim` deployable — CI half. The service was registered in
+the justfile but excluded from CI's paths filter, so no image was ever built or
+pushed. That is the root reason it has never been deployable, and it had been
+flagged and left open since the 2026-07-10 entry.
+
+**Files Modified**
+
+- `.github/workflows/ci.yaml`
+
+**Summary**
+
+Added `payment-gateway-sim: 'backend/payment-gateway-sim/**'` to the
+`dorny/paths-filter` list. The existing matrix, ACR push
+(`eurotransit/payment-gateway-sim:latest` — slash form, per the naming that
+already caused one outage when hyphenated) and the `restartedAt` rollout bump
+then apply to it like any other service.
+
+Also quoted the yq key in the rollout step (`."<service>".restartedAt`) for the
+dashed service name.
+
+**Potential Risks**
+
+- The config repo must expose a values key named exactly `payment-gateway-sim`
+  (dashed), since CI bumps `restartedAt` by directory name. The companion config
+  PR renames it from `paymentGatewaySim`; without that rename, image pushes would
+  silently never roll this service's pods.
+- Merge order matters: this PR must land **before** the chart PR, otherwise the
+  chart deploys an image that does not exist in ACR (`ImagePullBackOff`).
+
+**Confidence**
+
+High — workflow YAML parses, and the yq expression was verified empirically
+against both a dashed and a plain key.
+
+**Notes**
+
+An earlier ai-log predicted the dashed name would break the unquoted yq
+expression. Tested against yq v4: it does **not** break — the unquoted form
+resolves the dashed key fine. The quoting was kept anyway as version-drift
+insurance, but the recorded prediction was wrong and is corrected here.
+
+The 401 that prompted this task does not come from this service: it has no
+security dependency at all (no spring-security, no SecurityConfig), and Payments
+calls it with no token. The 401 is Payments rejecting calls that lack a JWT with
+`aud=payments` — tracked separately as a Keycloak realm task.
+
+---
+
+
 ### 2026-07-13 13:30
 
 **Agent**
