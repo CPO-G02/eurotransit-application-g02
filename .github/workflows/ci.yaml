@@ -25,6 +25,7 @@ jobs:
             inventory: 'backend/inventory/**'
             payments: 'backend/payments/**'
             notifications: 'backend/notifications/**'
+            payment-gateway-sim: 'backend/payment-gateway-sim/**'
 
   build-and-deploy:
     needs: detect-changes
@@ -116,7 +117,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          yq -i ".${{ matrix.service }}.restartedAt = \"$(date -u +%Y-%m-%dT%H:%M:%SZ)-${{ github.sha }}\"" deploy/charts/eurotransit/values.yaml
+          # Key quoted defensively for the dashed payment-gateway-sim name.
+          # Verified: yq v4 accepts it unquoted too, but quoting keeps the
+          # expression valid regardless of yq version drift on the runner.
+          yq -i ".\"${{ matrix.service }}\".restartedAt = \"$(date -u +%Y-%m-%dT%H:%M:%SZ)-${{ github.sha }}\"" deploy/charts/eurotransit/values.yaml
 
           git add deploy/charts/eurotransit/values.yaml
           git commit -m "chore: trigger ${{ matrix.service }} rollout for ${{ github.sha }}" || echo "no changes"
