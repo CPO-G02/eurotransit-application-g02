@@ -13,6 +13,7 @@ export const Checkout = () => {
   const queryParams = new URLSearchParams(location.search);
   const origin = queryParams.get('origin') || 'Milano';
   const destination = queryParams.get('destination') || 'Roma';
+  const departure = queryParams.get('departure') || '';
   const passengers = parseInt(queryParams.get('passengers') || '1', 10);
   const pricePerPassenger = parseFloat(queryParams.get('price') || '45.00');
 
