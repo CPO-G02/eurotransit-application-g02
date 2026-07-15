@@ -25,6 +25,12 @@ app:
   security:
     jwt:
       audience: ${PAYMENTS_JWT_AUDIENCE:payments}
+      # Keys are fetched from Keycloak's in-cluster Service, not the public
+      # issuer-uri above - startup shouldn't depend on external ingress/DNS
+      # being reachable. Token 'iss' claims are still validated against the
+      # public issuer-uri (see SecurityConfig.jwtDecoder), since that's what
+      # Keycloak actually stamps on real tokens.
+      jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://eurotransit-keycloak-service:8080/auth/realms/eurotransit/protocol/openid-connect/certs}
   gateway:
     # Base URL of the (simulated) external payment gateway service.
     url: ${GATEWAY_URL:http://localhost:8090}

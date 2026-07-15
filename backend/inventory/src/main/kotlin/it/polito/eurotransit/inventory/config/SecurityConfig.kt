@@ -9,7 +9,6 @@ import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator
 import org.springframework.security.oauth2.jwt.JwtValidators
 import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder
-import org.springframework.security.oauth2.jwt.ReactiveJwtDecoders
 import org.springframework.security.web.server.SecurityWebFilterChain
 
 @Configuration
@@ -40,9 +39,16 @@ class SecurityConfig {
     @Bean
     fun jwtDecoder(
         @Value("\${spring.security.oauth2.resourceserver.jwt.issuer-uri}") issuerUri: String,
+        @Value("\${app.security.jwt.jwk-set-uri}") jwkSetUri: String,
         @Value("\${app.security.jwt.audience}") audience: String
     ): ReactiveJwtDecoder {
-        val decoder = ReactiveJwtDecoders.fromIssuerLocation(issuerUri) as NimbusReactiveJwtDecoder
+        // Keys come from jwkSetUri (Keycloak's in-cluster Service) rather than
+        // ReactiveJwtDecoders.fromIssuerLocation(issuerUri), which would fetch
+        // the discovery document from the public issuer-uri at startup -
+        // making boot depend on external ingress/DNS being reachable.
+        // Issuer validation still checks against issuerUri unchanged, since
+        // that's the value Keycloak actually stamps on real tokens.
+        val decoder = NimbusReactiveJwtDecoder.withJwkSetUri(jwkSetUri).build()
         val validator = DelegatingOAuth2TokenValidator(
             JwtValidators.createDefaultWithIssuer(issuerUri),
             JwtAudienceValidator(audience)

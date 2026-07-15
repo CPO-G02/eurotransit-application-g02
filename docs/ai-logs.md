@@ -5,6 +5,443 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-15 18:10
+
+**Agent**
+
+Claude Opus 4.8
+
+**Task**
+
+Fix the Orders downstream resilience gap exposed by config PR #22's chaos review:
+`InventoryClient` and `PaymentClient` had `@CircuitBreaker` but no HTTP response
+timeout, so a hung/partitioned downstream left the coroutine suspended forever
+and the breaker never recorded an outcome — it could never open.
+
+**Files Modified**
+
+- `backend/orders/src/main/kotlin/.../client/InventoryClient.kt`
+- `backend/orders/src/main/kotlin/.../client/PaymentClient.kt`
+- `backend/orders/src/main/kotlin/.../config/WebClientConfig.kt`
+- `backend/orders/src/main/resources/application.yaml`
+- `backend/orders/src/test/kotlin/.../InventoryClientTest.kt`
+- `backend/orders/src/test/kotlin/.../PaymentClientTest.kt`
+- `backend/orders/src/test/kotlin/.../OrdersClientCircuitBreakerTest.kt` (new)
+
+**Summary**
+
+Added a Reactor Netty `responseTimeout` to both WebClients (inventory 2s,
+payments 6s — the latter exceeds Payments' own 5s gateway timeout) fed by new
+`app.inventory.timeout` / `app.payments.timeout` keys. Removed the inert
+`resilience4j.timelimiter` block (no `@TimeLimiter` ever wired it) and added
+`minimum-number-of-calls: 5` to both circuit-breaker instances.
+
+Switched both clients from the `@CircuitBreaker` annotation to the **programmatic**
+`circuitBreakerRegistry.circuitBreaker(name).executeSuspendFunction { ... }` used
+by payments' `HttpPaymentGateway`. Discovered while designing the fix that the
+annotation was completely inert: no `aspectjweaver` on the runtime classpath, and
+even with it the resilience4j 2.2.0 aspect records success the moment a suspend
+function suspends. Instance names (`inventory-client`, `payments-client`) are
+unchanged, so the yaml/GitOps config still binds.
+
+Also fixed the Orders→Payments 402 handling (mistake-log entry #4): a genuine
+card decline is now caught inside the breaker block, its real `reason` propagated,
+and counted as a successful call — so a burst of declines can no longer trip the
+breaker. The `WebClientConfig` builder bean is now prototype-scoped (it was a
+mutated singleton shared by both clients).
+
+**Validation**
+
+- `./gradlew clean test` — full Orders suite green (17 tests, 0 failures).
+- New `OrdersClientCircuitBreakerTest`: a hung downstream is recorded as a failure
+  and opens the breaker after 5 calls (`numberOfFailedCalls == 5`), the 6th is
+  short-circuited (`CallNotPermittedException`); a 402 keeps the breaker CLOSED
+  (`numberOfFailedCalls == 0`) with the real reason. This test fails against the
+  old annotation approach, which is the proof the programmatic switch was needed.
+
+**Potential Risks**
+
+- Behavior change now that the breaker+fallback are actually active: a Payments
+  503/timeout now returns DECLINED → payment-failed (compensation) instead of
+  propagating an exception to Stage 2. This is what architecture-design.md §2
+  prescribes ("fallback = treat as declined"); the old path was the non-compliant
+  one — but it is a real runtime change to call out on deploy.
+- `resilience4j.retry` (bounded retry + jitter, wanted by the architecture on
+  these edges) is still inert — out of scope here, a tracked follow-up.
+
+**Confidence**
+
+High for the timeout + programmatic-breaker fix and its tests. Medium on the
+retry gap remaining, which is deliberately deferred.
+
+**Notes**
+
+Companion config PR removes the mirrored inert `timelimiter` block from
+`orders.springApplicationJson` and adds the two `app.*.timeout` keys. Also
+surfaced (out of scope): the four `kafka/Stage*ConsumerTest` classes compile but
+are never discovered/run by Gradle — pre-existing, identical to `dev`.
+
+---
+
+### 2026-07-14 19:30
+
+**Agent**
+
+Claude Opus 4.8
+
+**Task**
+
+Make `payment-gateway-sim` deployable — CI half. The service was registered in
+the justfile but excluded from CI's paths filter, so no image was ever built or
+pushed. That is the root reason it has never been deployable, and it had been
+flagged and left open since the 2026-07-10 entry.
+
+**Files Modified**
+
+- `.github/workflows/ci.yaml`
+
+**Summary**
+
+Added `payment-gateway-sim: 'backend/payment-gateway-sim/**'` to the
+`dorny/paths-filter` list. The existing matrix, ACR push
+(`eurotransit/payment-gateway-sim:latest` — slash form, per the naming that
+already caused one outage when hyphenated) and the `restartedAt` rollout bump
+then apply to it like any other service.
+
+Also quoted the yq key in the rollout step (`."<service>".restartedAt`) for the
+dashed service name.
+
+**Potential Risks**
+
+- The config repo must expose a values key named exactly `payment-gateway-sim`
+  (dashed), since CI bumps `restartedAt` by directory name. The companion config
+  PR renames it from `paymentGatewaySim`; without that rename, image pushes would
+  silently never roll this service's pods.
+- Merge order matters: this PR must land **before** the chart PR, otherwise the
+  chart deploys an image that does not exist in ACR (`ImagePullBackOff`).
+
+**Confidence**
+
+High — workflow YAML parses, and the yq expression was verified empirically
+against both a dashed and a plain key.
+
+**Notes**
+
+An earlier ai-log predicted the dashed name would break the unquoted yq
+expression. Tested against yq v4: it does **not** break — the unquoted form
+resolves the dashed key fine. The quoting was kept anyway as version-drift
+insurance, but the recorded prediction was wrong and is corrected here.
+
+The 401 that prompted this task does not come from this service: it has no
+security dependency at all (no spring-security, no SecurityConfig), and Payments
+calls it with no token. The 401 is Payments rejecting calls that lack a JWT with
+`aud=payments` — tracked separately as a Keycloak realm task.
+
+---
+
+
+### 2026-07-13 13:30
+
+**Agent**
+
+Claude Opus 4.8
+
+**Task**
+
+Phase 2 (money path), Inventory & Payments: Kafka consumer dedup for
+`order-failed`, request-level dedup for the two internal synchronous calls, and
+validation of the consistency guarantees under concurrent load.
+
+**Files Modified**
+
+Application repo (two branches):
+
+- `backend/inventory/src/main/resources/schema.sql` (+ `processed_requests`, `processed_events`)
+- `backend/inventory/.../entities/{ProcessedRequestEntity,ProcessedEventEntity}.kt`
+- `backend/inventory/.../repositories/{ProcessedRequestRepository,ProcessedEventRepository}.kt`
+- `backend/inventory/.../service/DefaultInventoryService.kt`
+- `backend/inventory/src/test/.../InventoryReserveTest.kt`, `OrderFailedConsumerDedupTest.kt` (new)
+- `backend/inventory/CLAUDE.md`
+- `backend/payments/src/main/resources/schema.sql` (+ `processed_requests`)
+- `backend/payments/.../entities/ProcessedRequestEntity.kt`, `.../repositories/ProcessedRequestRepository.kt`
+- `backend/payments/.../service/{DefaultPaymentsService,DecisionRecorder}.kt`
+- `backend/payments/.../gateway/{PaymentGateway,HttpPaymentGateway}.kt` (extracted the `circuit_breaker_open` constant)
+- `backend/payments/src/test/.../PaymentsIdempotencyTest.kt` (new), `PaymentsAuthorizeTest.kt`
+- `backend/payments/CLAUDE.md`
+
+Configuration repo:
+
+- `docs/consistency-validation.md` (new), `docs/dod.md`
+
+**Summary**
+
+Implemented idempotency levels 2 and 3 from contract §3.2. The starting premise
+of the task was wrong in both directions and this was caught by reading the code
+before implementing: the `order-failed` consumer and the 10-on-5 concurrency test
+already existed, while `processed_requests` — believed to be delivered in Phase 1
+— existed in neither Inventory nor Payments (both carried an explicit "out of
+scope" comment saying so).
+
+Inventory: `processed_requests` claim is taken *before* the seat decrement, so a
+concurrent duplicate cannot get past it (the loser's `ON CONFLICT DO NOTHING`
+blocks on the winner's row lock, then reads back the committed reservation). A
+409 rolls the claim back rather than memoising it. `processed_events` gates the
+`order-failed` consumer in the same transaction as the compensation.
+
+Payments: the recorded decision is replayed before the gateway is called; the
+transaction is opened only afterwards, around the `transactions` row and the
+claim together, so an order gets exactly one transaction row however a retry
+overlaps. A `circuit_breaker_open` decline is deliberately not memoised.
+
+Tests now drive concurrency over real HTTP (10-on-5 and 50-on-20 mixed
+quantities) rather than calling the service bean in-process, and the Kafka
+consumer is exercised against a real broker for the first time — the previous
+suite set `spring.kafka.listener.auto-startup=false`, leaving it entirely
+unverified.
+
+**Potential Risks**
+
+- **Compensation still does not work end-to-end**, for reasons outside these two
+  services: Orders publishes `order-failed` to a bare topic name (missing the
+  `eurotransit.` prefix) with no `reservation_id` and no `event_id` in the
+  payload. Inventory's consumer is correct and tested but nothing reaches it.
+  Raised with the Orders owner; the DoD box stays unticked.
+- Payments calls the gateway *before* it persists. A pod death in between leaves
+  the charge taken with no local row; the ledger self-heals on retry only because
+  the gateway sends `Idempotency-Key: order_id` to Stripe. Documented as residual
+  risk rather than silently closed.
+- The claim-first ordering in Inventory relies on Postgres blocking
+  `ON CONFLICT DO NOTHING` on the conflicting row's lock. This is correct under
+  READ COMMITTED but is a database-specific guarantee.
+
+**Confidence**
+
+High for Inventory and Payments. Each guard was mutation-tested: with the gate
+disabled, exactly the intended tests fail and no others. That also confirmed a
+claim made to the reviewer — that `processed_events` is defence in depth rather
+than a live bug fix, since the RESERVED→RELEASED status guard alone already
+prevents a double release.
+
+**Notes**
+
+No architecture, contract, Kafka topic or API change. Both new tables are
+specified in contract §3.2 and already listed for Inventory in
+architecture-design.md §2, so no §19 escalation was required. No new dependencies.
+
+---
+
+### 2026-07-15 15:34
+
+**Agent**
+
+Claude Sonnet 5 via Claude Code
+
+**Task**
+
+Add the Micrometer instrumentation SLOs §4.1 (latency to CONFIRMED) and
+§4.3 (pipeline completion within 30s) need, which was the reason both were
+left unimplemented in the config repo's earlier SLI/burn-rate work - see
+that repo's `ai-logs.md` for the full context.
+
+**Files Modified**
+
+- backend/orders/.../metrics/OrderSloMetrics.kt (new)
+- backend/orders/.../scheduler/StalePendingOrdersMonitor.kt (new)
+- backend/orders/.../kafka/Stage3Consumer.kt
+- backend/orders/.../repositories/Repositories.kt
+- backend/orders/.../OrdersApplication.kt
+- backend/orders/src/test/kotlin/.../Stage3ConsumerTest.kt
+- docs/ai-logs.md (this entry)
+
+**Summary**
+
+Added a Micrometer `Timer` (`orders.confirmation.latency`) recorded in
+`Stage3Consumer` when an order reaches CONFIRMED, using both
+`publishPercentileHistogram()` and an exact `serviceLevelObjectives
+(Duration.ofMillis(800))` bucket - the latter so the §4.1 SLI can be a
+plain ratio (matching §4.2's pattern) instead of comparing a percentile
+point-estimate against a threshold. Added a Gauge
+(`orders.pending.stale.count`) for §4.3, populated by a new scheduled
+component (`StalePendingOrdersMonitor`) polling a new repository query
+(`countByStatusAndCreatedAtBefore`) every 5s - the same polling pattern
+`OutboxRelay` already used, since "orders stuck past budget right now" is a
+point-in-time DB fact, not something derivable from an event counter.
+
+Found a real, separate, previously-undiscovered bug while wiring the
+scheduled poller: **`@EnableScheduling` was missing from `OrdersApplication`
+entirely.** Spring Boot does not auto-register the `@Scheduled` annotation
+processor without it, and doesn't warn when it's missing - every
+`@Scheduled` method, including the pre-existing `OutboxRelay` poller that
+this whole session's saga-repair work depends on, has likely never actually
+run. Added it. Could not fully confirm the outbox-relay side was affected in
+practice (the `outbox` table is currently empty - no order has completed
+the full flow yet, blocked by the already-documented persistence/topic-name
+bugs), but the missing annotation itself is a certain fact, not an
+inference, and the consequence follows directly from well-established
+Spring behavior.
+
+Also hit and resolved a confusing false lead mid-session: a Docker rebuild
+after editing `OrderSloMetrics.kt` (adding `serviceLevelObjectives`)
+produced an image with a byte-for-byte identical digest to the pre-edit
+build, despite `--no-cache`. Extracting and inspecting the compiled
+`.class` file directly confirmed the new code was genuinely absent from
+that image - not just a stale local cache lie. Root cause not fully
+diagnosed (possibly Docker Desktop-level build-context caching, not
+resolved by `--no-cache` on `RUN` alone). Fixed pragmatically: flushed all
+local images and build cache (`docker rmi` + `docker builder prune -af`),
+rebuilt fully fresh, and - this time - verified the fix was actually present
+in the extracted class file **before** pushing, not after. Confirmed via
+the live cluster afterward: correct digest running, exact `le="0.8"`
+histogram bucket present in `/actuator/prometheus`.
+
+**Potential Risks**
+
+- Real end-to-end verification (a genuine order reaching CONFIRMED with a
+  measured latency) is still blocked by the already-documented saga bugs
+  (persistence no-op, bad topic names, Payments audience gap) - the new
+  metrics are confirmed correctly *registered*, not confirmed correct under
+  real load, since no order can reach CONFIRMED yet.
+- The Docker stale-digest incident's root cause is unresolved; if it
+  recurs, the fix (flush + verify class contents before pushing) is
+  reproducible but treats the symptom, not the cause.
+
+**Confidence**
+
+High on what's directly verified (compilation, `@EnableScheduling` gap via
+direct grep, both new metrics appearing correctly in a live scrape after
+deploying a class-content-verified image). Medium on real-world behavior
+under actual saga traffic, which isn't possible to test yet.
+
+---
+
+### 2026-07-15 02:05
+
+**Agent**
+
+Claude Sonnet 5 via Claude Code
+
+**Task**
+
+Support building the config repo's per-service RED dashboard (see that
+repo's `ai-logs.md`) by getting real Prometheus scrape data flowing for
+every backend service.
+
+**Files Modified**
+
+- backend/orders/build.gradle.kts
+- backend/notifications/build.gradle.kts
+- docs/ai-logs.md (this entry)
+
+**Summary**
+
+While validating the RED dashboard's queries against live Prometheus,
+found `orders` and `notifications` both returning 404 on
+`/actuator/prometheus` specifically (health/info endpoints worked fine) -
+Prometheus's scrape targets showed both as `down` with that exact error.
+Root cause: both were missing the `io.micrometer:micrometer-registry-
+prometheus` runtime dependency. `spring-boot-starter-actuator` alone
+doesn't register the Prometheus-format endpoint; that's a separate artifact.
+`catalog` and `payments` already had it (confirmed by diffing all four
+`build.gradle.kts` files); only these two were missing it. `application.yaml`
+already correctly listed `prometheus` in `management.endpoints.web.exposure.
+include` for both - the dependency was the only actual gap.
+
+Added `runtimeOnly("io.micrometer:micrometer-registry-prometheus")` to both,
+rebuilt, pushed, redeployed. Confirmed fixed: both scrape targets show `up`,
+and `http_server_requests_seconds_count` now populates correctly for both
+(verified via a live probe request and a real `POST /api/v1/orders` 401).
+
+**Potential Risks**
+
+- Manual build/push/deploy again (same as all prior sessions - these two
+  services' CI still isn't wired up on this branch).
+
+**Confidence**
+
+High - directly reproduced the 404 via Prometheus's own target-health API
+before the fix, and directly confirmed `up` + real metric samples after.
+
+---
+
+### 2026-07-14 16:26
+
+**Agent**
+
+Claude Sonnet 5 via Claude Code
+
+**Task**
+
+Add `GET /api/v1/orders` (list the authenticated user's own orders, for the
+"My Trips" page) and get the whole booking flow actually working end-to-end
+on the unmerged `frontend` branch, which previously loaded but did nothing
+functional.
+
+**Files Modified**
+
+- backend/orders/.../controllers/OrderController.kt, repositories/Repositories.kt,
+  service/OrderService.kt, service/OrderServiceImpl.kt
+- frontend/src/components/{Catalog,Checkout,MyTrips}.tsx, types/eurotransit.ts,
+  keycloak.ts, App.tsx, nginx.conf
+- frontend/public/silent-check-sso.html (new)
+- docs/ai-logs.md (this entry)
+
+**Summary**
+
+Added the list endpoint (filters by JWT subject, reuses `OrderStatusResponse`).
+Rewrote `MyTrips.tsx` to match that real response shape instead of a fabricated
+one (no `ticket_id`/`origin`/`upcoming`-`completed` fields that don't exist).
+
+Found and fixed several real, independent bugs blocking the booking flow
+end-to-end: `Catalog.tsx` crashed on every load (`seatClasses`/`seatClass`
+camelCase vs the API's actual `seat_classes`/`class` snake_case - a genuine
+contract mismatch, not a typo); `Checkout.tsx`'s POST `/orders` payload didn't
+match `OrderRequest` at all (wrong field names, two required fields never
+sent); `keycloak.ts` pointed at realm `eurotransit-realm`/client
+`eurotransit-frontend`, neither of which exist (`eurotransit`/`frontend` do) -
+login was 404ing at the OIDC layer this entire time. Also fixed a real Safari-
+surfacing bug: `onLoad: 'check-sso'` had no `silentCheckSsoRedirectUri`, so
+every fresh page load did a full top-level redirect to Keycloak and back
+instead of a silent iframe check - looked exactly like an infinite loading
+spinner. Added `public/silent-check-sso.html` and wired it in; confirmed fixed
+in Chrome, Safari still reported broken and needs further investigation
+(suspected `SameSite` cookie behavior on Keycloak's session cookie).
+
+Deeper root cause found for a persistent 401 on order creation: Keycloak's
+realm-import is create-only (confirmed via its own job log: `Realm
+'eurotransit' already exists. Import skipped`) - `orders`/`inventory`/
+`orders-service` clients and the `orders-audience`/`inventory-audience`
+client-scopes had been in git for a while but never actually existed in the
+live realm. Created all of it directly via the Admin API (see config repo's
+log for detail) since the file-based import can't apply updates to an
+existing realm.
+
+Separately confirmed (not fixed - already documented as a known TODO in
+`backend/payments/CLAUDE.md`): Orders→Payments still 401s regardless, since
+the `orders-service` token has no `payments` audience and the service-token
+feature is disabled by default. Out of scope for this session.
+
+Manually built/pushed/deployed `frontend` and `orders` images directly to ACR
+several times (branch isn't merged, CI doesn't cover it) - hit and fixed an
+arm64/amd64 mismatch (`--platform linux/amd64` required when building on
+Apple Silicon for these amd64 nodes).
+
+**Potential Risks**
+
+- Safari still broken for reasons not yet identified.
+- Payments audience/service-token wiring still incomplete by design (see above).
+- All these image pushes were manual, not through `ci.yaml` - will be
+  superseded whenever `frontend` branch's own CI job gets added and this
+  branch is merged.
+
+**Confidence**
+
+High for the fixes actually verified (Catalog, Checkout payload, Keycloak
+realm/client names, GET /orders, silent-check-sso in Chrome) - each was
+reproduced broken and then confirmed fixed via a real login + booking attempt.
+Medium overall given Safari and Payments remain open.
+
+---
+
 
 **Agent**
 
@@ -599,3 +1036,46 @@ Inventory, but it still needs local and CI verification.
 **Notes**
 
 No secrets were committed. Kafka events remain unchanged and do not carry JWTs.
+
+### 2026-07-14 22:52
+
+**Agent**
+
+Codex (GPT-5)
+
+**Task**
+
+Prepare application CI for immutable-digest progressive delivery.
+
+**Files Modified**
+
+- `.github/workflows/ci.yaml`
+- `docs/ai-logs.md`
+
+**Summary**
+
+Created `feature/canary` from the latest remote `dev`. Added Frontend change
+detection, conditional React/Vite lint and build gates, container builds on
+validation branches, main-only ACR publishing, strict registry digest
+verification, propagation of the digest into configuration `main`, and a bounded
+Git retry that fails after five unsuccessful pushes. The workflow remains
+compatible until `feature/frontend-updates` is merged.
+
+**Potential Risks**
+
+- The workflow has not run on GitHub yet, so repository secrets, runner tooling
+  and cross-repository write permission still require CI proof.
+- `actionlint` was not executed because downloading the tool was not authorized;
+  local YAML parsing and invariant checks passed.
+- The React branch has no test script; CI runs its declared lint and build
+  scripts without inventing a test command.
+
+**Confidence**
+
+High for branch conditions, digest propagation and compatibility with the
+inspected React branch. Medium until the first GitHub-hosted workflow run passes.
+
+**Notes**
+
+No image was pushed, no configuration repository was updated remotely, and no
+cluster-changing command was run.

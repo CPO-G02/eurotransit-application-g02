@@ -55,8 +55,11 @@ app:
       order-failed: eurotransit.order-failed
   payments:
     url: http://${PAYMENTS_HOST:localhost}:8080/api/v1/payments
+    # Must exceed Payments' own 5s gateway timeout (see payments app.gateway.timeout).
+    timeout: 6s
   inventory:
     url: http://${INVENTORY_HOST:localhost}:8080
+    timeout: 2s
   security:
     jwt:
       audience: ${ORDERS_JWT_AUDIENCE:orders}
@@ -81,21 +84,17 @@ resilience4j:
       payments-client:
         register-health-indicator: true
         sliding-window-size: 10
+        minimum-number-of-calls: 5
         failure-rate-threshold: 50
         wait-duration-in-open-state: 10s
         permitted-number-of-calls-in-half-open-state: 3
       inventory-client:
         register-health-indicator: true
         sliding-window-size: 10
+        minimum-number-of-calls: 5
         failure-rate-threshold: 50
         wait-duration-in-open-state: 10s
         permitted-number-of-calls-in-half-open-state: 3
-  timelimiter:
-    instances:
-      payments-client:
-        timeout-duration: 2s
-      inventory-client:
-        timeout-duration: 2s
   retry:
     instances:
       payments-client:
