@@ -1,6 +1,7 @@
 package it.polito.eurotransit.orders.kafka
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import it.polito.eurotransit.orders.metrics.OrderSloMetrics
 import it.polito.eurotransit.orders.repositories.OrderRepository
 import it.polito.eurotransit.orders.repositories.OutboxRepository
 import it.polito.eurotransit.orders.repositories.ProcessedEventRepository
@@ -9,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDateTime
 
@@ -20,6 +22,7 @@ class Stage3Consumer(
     private val objectMapper: ObjectMapper,
     @Value("\${app.kafka.topics.order-confirmed}")
     private val orderConfirmedTopic: String = "eurotransit.order-confirmed",
+    private val orderSloMetrics: OrderSloMetrics,
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -39,13 +42,19 @@ class Stage3Consumer(
             // update order status in database
             val order = orderRepo.findById(orderId) 
                 ?: throw IllegalStateException("order $orderId not found")
-            
+
+            val confirmedAt = LocalDateTime.now()
             val confirmedOrder = order.copy(
                 status = "CONFIRMED", 
                 transactionId = transactionId,
-                confirmedAt = LocalDateTime.now()
+                confirmedAt = confirmedAt,
             )
             orderRepo.save(confirmedOrder)
+
+            // contract §4.1 SLI: time from order creation to CONFIRMED
+            order.createdAt?.let { createdAt ->
+                orderSloMetrics.recordConfirmationLatency(Duration.between(createdAt, confirmedAt))
+            }
 
             // save confirmation to outbox
             val nextPayload = mapOf(

@@ -3,6 +3,7 @@ package it.polito.eurotransit.orders.repositories
 import it.polito.eurotransit.orders.entities.Order
 import it.polito.eurotransit.orders.entities.ProcessedEvent
 import it.polito.eurotransit.orders.entities.ProcessedRequest
+import kotlinx.coroutines.flow.Flow
 import org.springframework.data.r2dbc.repository.Modifying
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
@@ -40,6 +41,12 @@ interface OrderRepository : CoroutineCrudRepository<Order, String> {
         createdAt: LocalDateTime?,
         confirmedAt: LocalDateTime?,
     ): Int
+
+    fun findByUserId(userId: String): Flow<Order>
+
+    // Backs the contract's §4.3 pipeline-completion SLI: orders stuck in
+    // PENDING longer than the 30s budget without reaching a terminal state.
+    suspend fun countByStatusAndCreatedAtBefore(status: String, cutoff: LocalDateTime): Long
 }
 
 // frontend deduplication repository

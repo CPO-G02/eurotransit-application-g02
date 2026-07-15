@@ -6,6 +6,9 @@ on:
       - main
       - dev
       - test-ci-pipelines
+
+permissions:
+  contents: read
   
 jobs:
   detect-changes:
@@ -18,8 +21,8 @@ jobs:
         id: filter
         with:
           # output changed services as json
-          list-tags: 'json'
           filters: |
+            frontend: 'frontend/**'
             catalog: 'backend/catalog/**'
             orders: 'backend/orders/**'
             inventory: 'backend/inventory/**'
@@ -43,53 +46,69 @@ jobs:
 
       # setup java
       - uses: actions/setup-java@v4
+        if: ${{ matrix.service != 'frontend' }}
         with:
           java-version: '21'
           distribution: 'temurin'
           
       # run tests
       - name: build and test
+        if: ${{ matrix.service != 'frontend' }}
         run: |
           cd backend/${{ matrix.service }}
           chmod +x gradlew
           ./gradlew build
-          ./gradlew test
 
-      # acr login
+      - uses: actions/setup-node@v4
+        if: ${{ matrix.service == 'frontend' }}
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: lint and build frontend
+        if: ${{ matrix.service == 'frontend' }}
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
+      - name: build container
+        run: |
+          context="./backend/${{ matrix.service }}"
+          if [ "${{ matrix.service }}" = "frontend" ]; then
+            context="./frontend"
+          fi
+
+          image="${{ secrets.ACR_LOGIN_SERVER }}/eurotransit/${{ matrix.service }}:latest"
+          docker build -t "$image" "$context"
+
+      # Only main may publish a production image or update the GitOps source of
+      # truth. dev and test-ci-pipelines still build/test without moving latest.
       - uses: azure/docker-login@v1
+        if: ${{ github.ref == 'refs/heads/main' }}
         with:
           login-server: ${{ secrets.ACR_LOGIN_SERVER }}
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
-      # build and push
-      # Image tag is fixed at "latest" - the Deployment's imagePullPolicy is
-      # Always (see values.yaml), so pods always pull the newest push rather
-      # than reusing a locally-cached copy under the same tag name.
-      - name: build and push
+      - name: push and verify immutable digest
+        if: ${{ github.ref == 'refs/heads/main' }}
         run: |
-          # NOTE: "eurotransit/<service>" (slash), matching the repository
-          # path every Deployment actually pulls from - not
-          # "eurotransit-<service>" (hyphen), which silently pushed to a
-          # repository nothing ever reads from.
           image="${{ secrets.ACR_LOGIN_SERVER }}/eurotransit/${{ matrix.service }}:latest"
 
-          docker build -t $image ./backend/${{ matrix.service }}
-
-          push_output=$(docker push $image)
+          push_output=$(docker push "$image")
           echo "$push_output"
           pushed_digest=$(echo "$push_output" | grep -oP 'digest: \K\S+')
 
-          if [ -z "$pushed_digest" ]; then
-            echo "::error::docker push did not report a digest - treating this as a failed push"
+          if ! echo "$pushed_digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "::error::docker push did not report a valid immutable digest"
             exit 1
           fi
 
-          # A tag can exist and "docker manifest inspect" successfully even
-          # when this specific push silently failed to move the pointer -
-          # that gap is exactly what let a stale image get deployed earlier.
-          # Confirm "latest" now actually resolves to the digest we just
-          # pushed, not leftover content from an older run.
+          # Resolve the registry state independently: a pre-existing latest tag
+          # is not proof that this run moved it to the image just pushed.
           live_digest=$(docker manifest inspect "$image" --verbose | python3 -c "import json,sys; print(json.load(sys.stdin)['Descriptor']['digest'])")
 
           if [ "$live_digest" != "$pushed_digest" ]; then
@@ -97,39 +116,89 @@ jobs:
             exit 1
           fi
 
+          echo "IMAGE_DIGEST=$live_digest" >> "$GITHUB_ENV"
+
+      - name: install pinned yq
+        if: ${{ github.ref == 'refs/heads/main' }}
+        env:
+          YQ_VERSION: v4.53.2
+        run: |
+          install_dir="$RUNNER_TEMP/yq-$YQ_VERSION"
+          mkdir -p "$install_dir"
+
+          curl --fail --location --silent --show-error \
+            "https://github.com/mikefarah/yq/releases/download/$YQ_VERSION/yq_linux_amd64" \
+            --output "$install_dir/yq_linux_amd64"
+          curl --fail --location --silent --show-error \
+            "https://github.com/mikefarah/yq/releases/download/$YQ_VERSION/checksums" \
+            --output "$install_dir/checksums"
+
+          cd "$install_dir"
+          grep -E '[[:space:]]yq_linux_amd64$' checksums | sha256sum --check --strict
+          mv yq_linux_amd64 yq
+          chmod +x yq
+
+          echo "$install_dir" >> "$GITHUB_PATH"
+          ./yq --version
+
       # checkout config
       - uses: actions/checkout@v4
+        if: ${{ github.ref == 'refs/heads/main' }}
         with:
           repository: CPO-G02/eurotransit-configuration-g02
           token: ${{ secrets.GITOPS_TOKEN }}
+          ref: main
           path: config-repo
 
-      # trigger rollout
-      # The image tag itself ("latest") never changes, so nothing about the
-      # Deployment spec would otherwise differ after a new push - Kubernetes
-      # only rolls pods when the pod template actually changes. Bumping a
-      # restartedAt annotation via the git-tracked value is what forces that,
-      # keeping this fully GitOps (no direct cluster credentials in CI).
-      - name: bump restart annotation and commit
+      # The digest is the release identity for every progressively managed
+      # service. restartedAt remains useful traceability and is still the
+      # rollout trigger for Notifications, which stays tag-based and standard.
+      - name: update GitOps image and commit
+        if: ${{ github.ref == 'refs/heads/main' }}
         run: |
           cd config-repo
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Key quoted defensively for the dashed payment-gateway-sim name.
-          # Verified: yq v4 accepts it unquoted too, but quoting keeps the
-          # expression valid regardless of yq version drift on the runner.
-          yq -i ".\"${{ matrix.service }}\".restartedAt = \"$(date -u +%Y-%m-%dT%H:%M:%SZ)-${{ github.sha }}\"" deploy/charts/eurotransit/values.yaml
+          restarted_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)-${{ github.sha }}"
 
-          git add deploy/charts/eurotransit/values.yaml
-          git commit -m "chore: trigger ${{ matrix.service }} rollout for ${{ github.sha }}" || echo "no changes"
+          # Matrix jobs can update the same values file concurrently. Start each
+          # attempt from the latest main and reapply this service's update so a
+          # rejected push never leaves the next retry in a conflicted rebase.
+          for attempt in 1 2 3 4 5; do
+            if ! git fetch origin main; then
+              if [ "$attempt" -lt 5 ]; then
+                sleep 5
+                continue
+              fi
+              break
+            fi
 
-          # retry push on collision
-          n=0
-          until [ "$n" -ge 5 ]
-          do
-             git pull --rebase origin main && git push origin main && break
-             n=$((n+1))
-             sleep 5
+            git reset --hard origin/main
+
+            if [ "${{ matrix.service }}" != "notifications" ]; then
+              IMAGE_DIGEST="$IMAGE_DIGEST" yq -i '.${{ matrix.service }}.image.digest = strenv(IMAGE_DIGEST)' deploy/charts/eurotransit/values.yaml
+            fi
+
+            RESTARTED_AT="$restarted_at" yq -i '.${{ matrix.service }}.restartedAt = strenv(RESTARTED_AT)' deploy/charts/eurotransit/values.yaml
+
+            git add deploy/charts/eurotransit/values.yaml
+            if git diff --cached --quiet; then
+              echo "Configuration already contains the requested update"
+              exit 0
+            fi
+
+            git commit -m "chore: deploy ${{ matrix.service }} image for ${{ github.sha }}"
+
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+
+            if [ "$attempt" -lt 5 ]; then
+              sleep 5
+            fi
           done
+
+          echo "::error::Failed to update configuration main after 5 attempts"
+          exit 1

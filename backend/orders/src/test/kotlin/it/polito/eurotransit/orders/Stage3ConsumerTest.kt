@@ -1,7 +1,9 @@
 package it.polito.eurotransit.orders.kafka
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import it.polito.eurotransit.orders.entities.Order
+import it.polito.eurotransit.orders.metrics.OrderSloMetrics
 import it.polito.eurotransit.orders.repositories.OrderRepository
 import it.polito.eurotransit.orders.repositories.OutboxRepository
 import it.polito.eurotransit.orders.repositories.ProcessedEventRepository
@@ -21,8 +23,19 @@ class Stage3ConsumerTest {
     private val outboxRepo = mock(OutboxRepository::class.java)
     private val processedEventRepo = mock(ProcessedEventRepository::class.java)
     private val objectMapper = ObjectMapper()
-    
-    private val consumer = Stage3Consumer(orderRepo, outboxRepo, processedEventRepo, objectMapper)
+    // Real instance (backed by a real, throwaway registry) rather than a mock -
+    // it's a plain metrics recorder with no external dependencies, cheaper to
+    // use for real than to mock.
+    private val orderSloMetrics = OrderSloMetrics(SimpleMeterRegistry())
+
+    private val consumer = Stage3Consumer(
+        orderRepo,
+        outboxRepo,
+        processedEventRepo,
+        objectMapper,
+        orderConfirmedTopic = "eurotransit.order-confirmed",
+        orderSloMetrics = orderSloMetrics,
+    )
 
     @Test
     fun `should confirm order when payment-authorized event received`() = runBlocking {

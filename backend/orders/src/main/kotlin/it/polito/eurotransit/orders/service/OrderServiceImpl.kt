@@ -7,6 +7,7 @@ import it.polito.eurotransit.orders.repositories.OrderRepository
 import it.polito.eurotransit.orders.repositories.OutboxRepository
 import it.polito.eurotransit.orders.repositories.ProcessedRequestRepository
 import it.polito.eurotransit.orders.dto.OrderPlacedEvent
+import kotlinx.coroutines.flow.toList
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -84,5 +85,9 @@ class OrderServiceImpl(
 
     override suspend fun getOrderStatus(orderId: String): Order? {
         return orderRepo.findById(orderId)
+    }
+
+    override suspend fun getOrdersForUser(userId: String): List<Order> {
+        return orderRepo.findByUserId(userId).toList()
     }
 }
