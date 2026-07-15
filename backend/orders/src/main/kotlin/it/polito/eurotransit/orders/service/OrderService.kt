@@ -6,4 +6,5 @@ import it.polito.eurotransit.orders.dto.OrderRequest
 interface OrderService {
     suspend fun createOrder(req: OrderRequest): Order
     suspend fun getOrderStatus(orderId: String): Order?
+    suspend fun getOrdersForUser(userId: String): List<Order>
 }
