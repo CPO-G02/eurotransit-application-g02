@@ -152,6 +152,139 @@ architecture-design.md §2, so no §19 escalation was required. No new dependenc
 
 ---
 
+### 2026-07-15 15:34
+
+**Agent**
+
+Claude Sonnet 5 via Claude Code
+
+**Task**
+
+Add the Micrometer instrumentation SLOs §4.1 (latency to CONFIRMED) and
+§4.3 (pipeline completion within 30s) need, which was the reason both were
+left unimplemented in the config repo's earlier SLI/burn-rate work - see
+that repo's `ai-logs.md` for the full context.
+
+**Files Modified**
+
+- backend/orders/.../metrics/OrderSloMetrics.kt (new)
+- backend/orders/.../scheduler/StalePendingOrdersMonitor.kt (new)
+- backend/orders/.../kafka/Stage3Consumer.kt
+- backend/orders/.../repositories/Repositories.kt
+- backend/orders/.../OrdersApplication.kt
+- backend/orders/src/test/kotlin/.../Stage3ConsumerTest.kt
+- docs/ai-logs.md (this entry)
+
+**Summary**
+
+Added a Micrometer `Timer` (`orders.confirmation.latency`) recorded in
+`Stage3Consumer` when an order reaches CONFIRMED, using both
+`publishPercentileHistogram()` and an exact `serviceLevelObjectives
+(Duration.ofMillis(800))` bucket - the latter so the §4.1 SLI can be a
+plain ratio (matching §4.2's pattern) instead of comparing a percentile
+point-estimate against a threshold. Added a Gauge
+(`orders.pending.stale.count`) for §4.3, populated by a new scheduled
+component (`StalePendingOrdersMonitor`) polling a new repository query
+(`countByStatusAndCreatedAtBefore`) every 5s - the same polling pattern
+`OutboxRelay` already used, since "orders stuck past budget right now" is a
+point-in-time DB fact, not something derivable from an event counter.
+
+Found a real, separate, previously-undiscovered bug while wiring the
+scheduled poller: **`@EnableScheduling` was missing from `OrdersApplication`
+entirely.** Spring Boot does not auto-register the `@Scheduled` annotation
+processor without it, and doesn't warn when it's missing - every
+`@Scheduled` method, including the pre-existing `OutboxRelay` poller that
+this whole session's saga-repair work depends on, has likely never actually
+run. Added it. Could not fully confirm the outbox-relay side was affected in
+practice (the `outbox` table is currently empty - no order has completed
+the full flow yet, blocked by the already-documented persistence/topic-name
+bugs), but the missing annotation itself is a certain fact, not an
+inference, and the consequence follows directly from well-established
+Spring behavior.
+
+Also hit and resolved a confusing false lead mid-session: a Docker rebuild
+after editing `OrderSloMetrics.kt` (adding `serviceLevelObjectives`)
+produced an image with a byte-for-byte identical digest to the pre-edit
+build, despite `--no-cache`. Extracting and inspecting the compiled
+`.class` file directly confirmed the new code was genuinely absent from
+that image - not just a stale local cache lie. Root cause not fully
+diagnosed (possibly Docker Desktop-level build-context caching, not
+resolved by `--no-cache` on `RUN` alone). Fixed pragmatically: flushed all
+local images and build cache (`docker rmi` + `docker builder prune -af`),
+rebuilt fully fresh, and - this time - verified the fix was actually present
+in the extracted class file **before** pushing, not after. Confirmed via
+the live cluster afterward: correct digest running, exact `le="0.8"`
+histogram bucket present in `/actuator/prometheus`.
+
+**Potential Risks**
+
+- Real end-to-end verification (a genuine order reaching CONFIRMED with a
+  measured latency) is still blocked by the already-documented saga bugs
+  (persistence no-op, bad topic names, Payments audience gap) - the new
+  metrics are confirmed correctly *registered*, not confirmed correct under
+  real load, since no order can reach CONFIRMED yet.
+- The Docker stale-digest incident's root cause is unresolved; if it
+  recurs, the fix (flush + verify class contents before pushing) is
+  reproducible but treats the symptom, not the cause.
+
+**Confidence**
+
+High on what's directly verified (compilation, `@EnableScheduling` gap via
+direct grep, both new metrics appearing correctly in a live scrape after
+deploying a class-content-verified image). Medium on real-world behavior
+under actual saga traffic, which isn't possible to test yet.
+
+---
+
+### 2026-07-15 02:05
+
+**Agent**
+
+Claude Sonnet 5 via Claude Code
+
+**Task**
+
+Support building the config repo's per-service RED dashboard (see that
+repo's `ai-logs.md`) by getting real Prometheus scrape data flowing for
+every backend service.
+
+**Files Modified**
+
+- backend/orders/build.gradle.kts
+- backend/notifications/build.gradle.kts
+- docs/ai-logs.md (this entry)
+
+**Summary**
+
+While validating the RED dashboard's queries against live Prometheus,
+found `orders` and `notifications` both returning 404 on
+`/actuator/prometheus` specifically (health/info endpoints worked fine) -
+Prometheus's scrape targets showed both as `down` with that exact error.
+Root cause: both were missing the `io.micrometer:micrometer-registry-
+prometheus` runtime dependency. `spring-boot-starter-actuator` alone
+doesn't register the Prometheus-format endpoint; that's a separate artifact.
+`catalog` and `payments` already had it (confirmed by diffing all four
+`build.gradle.kts` files); only these two were missing it. `application.yaml`
+already correctly listed `prometheus` in `management.endpoints.web.exposure.
+include` for both - the dependency was the only actual gap.
+
+Added `runtimeOnly("io.micrometer:micrometer-registry-prometheus")` to both,
+rebuilt, pushed, redeployed. Confirmed fixed: both scrape targets show `up`,
+and `http_server_requests_seconds_count` now populates correctly for both
+(verified via a live probe request and a real `POST /api/v1/orders` 401).
+
+**Potential Risks**
+
+- Manual build/push/deploy again (same as all prior sessions - these two
+  services' CI still isn't wired up on this branch).
+
+**Confidence**
+
+High - directly reproduced the 404 via Prometheus's own target-health API
+before the fix, and directly confirmed `up` + real metric samples after.
+
+---
+
 ### 2026-07-14 16:26
 
 **Agent**

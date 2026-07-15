@@ -3,6 +3,7 @@ package it.polito.eurotransit.orders.kafka
 import com.fasterxml.jackson.databind.ObjectMapper
 import it.polito.eurotransit.orders.entities.OutboxEntry
 import it.polito.eurotransit.orders.entities.ProcessedEvent
+import it.polito.eurotransit.orders.metrics.OrderSloMetrics
 import it.polito.eurotransit.orders.repositories.OrderRepository
 import it.polito.eurotransit.orders.repositories.OutboxRepository
 import it.polito.eurotransit.orders.repositories.ProcessedEventRepository
@@ -10,6 +11,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
+import java.time.Duration
 import java.time.LocalDateTime
 
 @Component
@@ -17,7 +19,8 @@ class Stage3Consumer(
     private val orderRepo: OrderRepository,
     private val outboxRepo: OutboxRepository,
     private val processedEventRepo: ProcessedEventRepository,
-    private val objectMapper: ObjectMapper
+    private val objectMapper: ObjectMapper,
+    private val orderSloMetrics: OrderSloMetrics
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -43,6 +46,11 @@ class Stage3Consumer(
                 confirmedAt = LocalDateTime.now()
             )
             orderRepo.save(confirmedOrder)
+
+            // contract §4.1 SLI: time from order creation to CONFIRMED
+            order.createdAt?.let { createdAt ->
+                orderSloMetrics.recordConfirmationLatency(Duration.between(createdAt, confirmedOrder.confirmedAt))
+            }
 
             // save confirmation to outbox
             val nextPayload = mapOf("order_id" to orderId, "status" to "CONFIRMED")
