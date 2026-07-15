@@ -2,7 +2,6 @@ package it.polito.eurotransit.orders.client
 
 import com.github.tomakehurst.wiremock.client.WireMock.*
 import com.github.tomakehurst.wiremock.junit5.WireMockTest
-import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import it.polito.eurotransit.orders.dto.PaymentAuthorizeRequest
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -10,19 +9,16 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.web.reactive.function.client.WebClient
 import java.math.BigDecimal
-import java.time.Duration
 
 @WireMockTest(httpPort = 8089)
 class PaymentClientTest {
 
     private lateinit var client: PaymentClient
 
-    private fun client(token: ServiceTokenProvider? = null) =
-        PaymentClient(WebClient.builder(), CircuitBreakerRegistry.ofDefaults(), "http://localhost:8089", Duration.ofSeconds(6), token)
-
     @BeforeEach
     fun setup() {
-        client = client()
+        val webClientBuilder = WebClient.builder()
+        client = PaymentClient(webClientBuilder, "http://localhost:8089")
     }
 
     @Test
@@ -84,7 +80,6 @@ class PaymentClientTest {
             "http://localhost:8089",
             serviceTokenProvider = tokenProvider,
         )
-        val client = client(tokenProvider)
 
         val request = PaymentAuthorizeRequest(
             idempotency_key = "ord-123",
