@@ -28,6 +28,7 @@ jobs:
             inventory: 'backend/inventory/**'
             payments: 'backend/payments/**'
             notifications: 'backend/notifications/**'
+            payment-gateway-sim: 'backend/payment-gateway-sim/**'
 
   build-and-deploy:
     needs: detect-changes
