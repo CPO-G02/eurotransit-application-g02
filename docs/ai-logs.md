@@ -5,6 +5,51 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-15 21:55
+
+**Agent**
+
+Codex GPT-5
+
+**Task**
+
+Implement the application side of the DoD requirement "Backpressure / load
+shedding: HTTP 429 when overloaded" for Orders.
+
+**Files Modified**
+
+- `backend/orders/src/main/kotlin/.../config/OrdersBackpressureConfig.kt`
+- `backend/orders/src/main/resources/application.yaml`
+- `backend/orders/src/test/kotlin/.../OrdersBackpressureConfigTest.kt`
+- `docs/ai-logs.md`
+
+**Summary**
+
+Added an inbound WebFlux load-shedding filter for `POST /api/v1/orders`. The
+filter is controlled by `app.backpressure.orders.*`, uses a local semaphore, and
+returns `HTTP 429 Too Many Requests` with `Retry-After` when the concurrent
+order-create limit is exhausted. Status reads, Actuator probes, and downstream
+client calls are intentionally outside the filter.
+
+The default limit is `20`, chosen as an initial bound around the existing Orders
+R2DBC pool shape (`max-size: 10`) with small burst headroom. The companion
+configuration-repo change renders the same policy through
+`orders.springApplicationJson` so Argo CD owns the runtime value.
+
+**Validation**
+
+Focused unit tests cover the 429 path and verify non-create order requests bypass
+the filter. Full validation requires running the Orders test suite and then
+observing `429` behavior under controlled live load.
+
+**Potential Risks**
+
+The value is a starting threshold, not a tuned capacity limit. It must be adjusted
+from live latency, 429 rate, accepted-order completion, CPU throttling, and DB
+pool saturation evidence.
+
+---
+
 ### 2026-07-15 18:10
 
 **Agent**
