@@ -746,3 +746,183 @@ Inventory, but it still needs local and CI verification.
 **Notes**
 
 No secrets were committed. Kafka events remain unchanged and do not carry JWTs.
+
+---
+
+### 2026-07-15 16:31
+
+**Agent**
+
+Codex
+
+**Task**
+
+Fix Orders saga persistence, Kafka contract alignment, Jackson serialization, and payment-decline handling after reviewing the AI guidelines and architecture docs.
+
+**Files Modified**
+
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/repositories/Repositories.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/service/OrderServiceImpl.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/dto/OrderPlacedEvent.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/client/PaymentClient.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/kafka/Stage1Consumer.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/kafka/Stage2Consumer.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/kafka/Stage3Consumer.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/kafka/Stage4Consumer.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/config/JacksonConfig.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/PaymentClientTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/SagaIntegrationTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage1ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage2ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage3ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage4ConsumerTest.kt
+- docs/ai-logs.md
+
+**Summary**
+
+Replaced `save()`-based inserts for String-keyed Orders entities with explicit SQL inserts and `ON CONFLICT DO NOTHING` idempotency claims. Removed the hand-built Jackson `ObjectMapper` bean so Boot's configured snake_case mapper is used, and annotated `OrderPlacedEvent` with contract wire names. Updated all four Orders saga consumers to claim `event_id` atomically, publish configured `eurotransit.*` topics, include contract fields such as `event_id`, `event_timestamp`, `reservation_id`, `user_email`, and payment details, and propagate payment failure reasons to compensation. Updated `PaymentClient` so HTTP 402 is treated as a valid declined business response instead of a circuit-breaker failure.
+
+**Potential Risks**
+
+- Unit tests now assert the contract payload shape, but the Orders repository insert behavior still deserves a real Postgres/R2DBC integration test in CI.
+- The existing uncommitted Inventory retry and randomized-wait changes were preserved and not authored in this session.
+
+**Confidence**
+
+High — implementation follows the architecture and contract documents, and the Orders test suite passes locally.
+
+**Notes**
+
+No new topics, dependencies, services, or schema tables were introduced.
+
+---
+
+### 2026-07-15 16:47
+
+**Agent**
+
+Codex
+
+**Task**
+
+Review and verify the recent Orders fixes against `ai-mistake-log.md`, adding only focused tests and minimal correctness fixes.
+
+**Files Modified**
+
+- backend/orders/build.gradle.kts
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/client/PaymentClient.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/OrdersRepositoryPostgresTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/client/PaymentClientResilienceTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/OrdersCompensationPathTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/SagaIntegrationTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage1ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage2ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage3ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage4ConsumerTest.kt
+- docs/ai-logs.md
+
+**Summary**
+
+Added PostgreSQL Testcontainers coverage for Orders repository inserts and idempotency claims, stricter saga event contract assertions, a focused compensation propagation test, and PaymentClient resilience tests for 200, 402, 5xx, connection reset, timeout, and malformed 402 bodies. Replaced the fragile annotation-only PaymentClient circuit breaker path with the Resilience4j Kotlin `CircuitBreakerRegistry` API so suspend calls are actually protected, while preserving 402 as a business decline.
+
+**Potential Risks**
+
+- In this local environment Docker is unavailable, so `OrdersRepositoryPostgresTest` is skipped by Testcontainers. The test is present and should run in CI or any Docker-enabled developer environment.
+- The existing uncommitted Inventory retry and randomized-wait changes were preserved and not authored in this session.
+
+**Confidence**
+
+Medium — non-DB tests pass and the real-DB test is implemented, but full persistence verification still needs a Docker-enabled run.
+
+**Notes**
+
+No Kafka topics, database tables, or service boundaries were changed.
+
+---
+
+### 2026-07-15 15:57
+
+**Agent**
+
+Codex
+
+**Task**
+
+Re-run full Orders verification with Docker available and correct any regressions exposed by the Docker-backed test run.
+
+**Files Modified**
+
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/config/ObjectMapperConfig.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/client/PaymentClient.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/client/PaymentClientResilienceTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage1ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage2ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage3ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage4ConsumerTest.kt
+- docs/ai-logs.md
+
+**Summary**
+
+Docker-backed `OrdersRepositoryPostgresTest` started a real `postgres:16-alpine` container and executed all six repository tests. The first run exposed that Boot 4 did not create a `com.fasterxml.jackson.databind.ObjectMapper` bean for the Orders context after deleting the old config, so a single snake_case `ObjectMapperConfig` bean was added. Full-suite execution also exposed coroutine test methods whose inferred return types caused JUnit discovery warnings; those tests now return `Unit`. PaymentClient cancellation handling was tightened so caller cancellation is rethrown instead of converted into a payment failure, with coverage for open circuit and cancellation.
+
+**Potential Risks**
+
+- `ObjectMapperConfig` explicitly configures `SNAKE_CASE` to match `application.yaml`; if the project changes the naming strategy later, this bean must be kept in sync.
+- The existing uncommitted Inventory retry and randomized-wait changes were preserved and not authored in this session.
+
+**Confidence**
+
+High — `./gradlew clean test` executed 34 tests with 0 skipped, 0 failed, and `./gradlew check` passed.
+
+**Notes**
+
+No Kafka topics, database tables, or service boundaries were changed.
+
+---
+
+### 2026-07-15 17:31
+
+**Agent**
+
+Codex
+
+**Task**
+
+Complete final Orders merge checks, verify resilience behavior, and commit the branch.
+
+**Files Modified**
+
+- backend/orders/build.gradle.kts
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/client/InventoryClient.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/client/PaymentClient.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/config/ObjectMapperConfig.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/repositories/OutboxRepository.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/OrdersRepositoryPostgresTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/OrdersStage2RollbackPostgresTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/client/InventoryClientResilienceTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/client/PaymentClientResilienceTest.kt
+- docs/ai-logs.md
+
+**Summary**
+
+Replaced the interim bare `jacksonObjectMapper()` bean with a Jackson 2 mapper built through `Jackson2ObjectMapperBuilder`, applying Boot `JacksonProperties`, Kotlin module discovery, Java Time support, snake_case, and ISO date serialization. Added Docker-backed tests proving mapper behavior and real PostgreSQL transaction rollback for Stage 2 when outbox insertion fails. Fixed new outbox writes to use explicit SQL with `CAST(:payload AS jsonb)`.
+
+Added transport-level WebClient timeouts for Orders to Inventory and Payments using Reactor Netty `responseTimeout` and connect timeout, reusing the existing `resilience4j.timelimiter.instances.*.timeout-duration` values. Payment HTTP 402 remains a business `DECLINED` response, while timeout/network failures are observable by the circuit breaker and use the infrastructure fallback. Added focused resilience tests for Inventory and Payment clients, including breaker state transition coverage.
+
+Final Retry/CircuitBreaker interaction check for Inventory showed that one logical request currently produces one actual HTTP call, one circuit breaker failure, and lasts about one configured response timeout. The existing `@Retry` annotation did not produce three attempts for the suspend function under the verified Spring wiring.
+
+**Verification**
+
+- `cd backend/orders && ./gradlew clean test` passed.
+- `cd backend/orders && ./gradlew check` passed.
+- Final totals: 41 tests passed, 0 failed, 0 skipped.
+- Commit created: `4a148c4 Fix orders saga resilience and contracts`.
+
+**Potential Risks**
+
+- `Jackson2ObjectMapperBuilder` is deprecated in Spring Boot 4, but this bridge is currently required because Orders production code and Spring Kafka serializers still use Jackson 2 (`com.fasterxml.jackson.databind.ObjectMapper`) while Boot 4's main Jackson starter uses Jackson 3.
+- Inventory retry settings are present in configuration, but the verified suspend-function path did not perform multiple attempts. If three physical attempts are required, retry should be wired programmatically rather than relying on the annotation.
+
+**Confidence**
+
+High — full Orders tests and `check` passed after Docker-backed persistence, mapper, rollback, outbox JSONB, and client resilience coverage.

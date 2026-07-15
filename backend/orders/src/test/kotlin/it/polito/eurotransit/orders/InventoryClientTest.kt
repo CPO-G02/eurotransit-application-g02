@@ -8,13 +8,14 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.springframework.web.reactive.function.client.WebClient
+import java.time.Duration
 
 @WireMockTest(httpPort = 8081)
 class InventoryClientTest {
 
     @Test
     fun `reserveSeats returns INSUFFICIENT_SEATS status on CONFLICT`() = runBlocking {
-        val client = InventoryClient(WebClient.builder(), "http://localhost:8081")
+        val client = InventoryClient(WebClient.builder(), "http://localhost:8081", inventoryTimeout = Duration.ofSeconds(1))
         
         val request = InventoryReserveRequest(
             idempotency_key = "test-key", 
@@ -43,7 +44,12 @@ class InventoryClientTest {
             clientSecret = "test-secret",
             scope = ""
         )
-        val client = InventoryClient(WebClient.builder(), "http://localhost:8081", tokenProvider)
+        val client = InventoryClient(
+            WebClient.builder(),
+            "http://localhost:8081",
+            inventoryTimeout = Duration.ofSeconds(1),
+            serviceTokenProvider = tokenProvider,
+        )
 
         val request = InventoryReserveRequest(
             idempotency_key = "test-key",

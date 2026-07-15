@@ -1,12 +1,22 @@
 package it.polito.eurotransit.orders.repositories
 
 import it.polito.eurotransit.orders.entities.OutboxEntry
+import org.springframework.data.r2dbc.repository.Modifying
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
 import org.springframework.stereotype.Repository
 
 @Repository
 interface OutboxRepository : CoroutineCrudRepository<OutboxEntry, Long> {
+
+    @Modifying
+    @Query(
+        """
+        INSERT INTO outbox (event_id, topic, payload)
+        VALUES (:eventId, :topic, CAST(:payload AS jsonb))
+        """,
+    )
+    suspend fun insert(eventId: String, topic: String, payload: String): Int
 
     // fetch pending messages and lock rows to prevent double publishing
     @Query("""

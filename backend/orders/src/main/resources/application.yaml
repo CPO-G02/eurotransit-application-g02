@@ -103,6 +103,8 @@ resilience4j:
         wait-duration: 500ms
         enable-exponential-backoff: true
         exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
       inventory-client:
         max-attempts: 3
         wait-duration: 500ms

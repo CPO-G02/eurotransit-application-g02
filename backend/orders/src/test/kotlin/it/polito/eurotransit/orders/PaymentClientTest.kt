@@ -42,6 +42,31 @@ class PaymentClientTest {
     }
 
     @Test
+    fun `authorizePayment treats HTTP 402 as declined business response`() = runBlocking {
+        stubFor(
+            post(urlEqualTo("/authorize"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(402)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""{"status":"DECLINED","reason":"insufficient_funds"}"""),
+                ),
+        )
+
+        val request = PaymentAuthorizeRequest(
+            idempotency_key = "ord-123",
+            user_id = "user-1",
+            amount = BigDecimal("50.00"),
+            currency = "EUR",
+        )
+
+        val response = client.authorizePayment(request)
+
+        assertEquals("DECLINED", response.status)
+        assertEquals("insufficient_funds", response.reason)
+    }
+
+    @Test
     fun `authorizePayment sends service account bearer token when enabled`() = runBlocking {
         val tokenProvider = ServiceTokenProvider(
             enabled = true,
@@ -50,7 +75,11 @@ class PaymentClientTest {
             clientSecret = "test-secret",
             scope = "",
         )
-        val client = PaymentClient(WebClient.builder(), "http://localhost:8089", tokenProvider)
+        val client = PaymentClient(
+            WebClient.builder(),
+            "http://localhost:8089",
+            serviceTokenProvider = tokenProvider,
+        )
 
         val request = PaymentAuthorizeRequest(
             idempotency_key = "ord-123",
