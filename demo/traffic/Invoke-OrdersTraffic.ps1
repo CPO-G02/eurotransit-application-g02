@@ -8,7 +8,7 @@ param(
     [ValidateSet('http', 'https')][string]$ExpectedPublicScheme = 'https',
     [ValidateRange(1, 65535)][int]$ExpectedPublicPort = 443,
     [string]$KubernetesNamespace = 'eurotransit',
-    [ValidateSet('ReadOnly', 'MoneyPath')][string]$Mode = 'ReadOnly',
+    [ValidateSet('ReadOnly', 'MoneyPath', 'Rollout')][string]$Mode = 'ReadOnly',
     [string]$AccessToken,
     [switch]$AcknowledgeMoneyPathSideEffects,
     [switch]$AcknowledgeSafePaymentGateway,
@@ -21,7 +21,7 @@ param(
     [ValidateSet('Confirmed', 'InsufficientInventory', 'PaymentDeclined')]
     [string]$ExpectedOutcome = 'Confirmed',
     [ValidateRange(1, 20)][int]$Quantity = 1,
-    [ValidateRange(1, 20)][int]$MaxNewOperations = 3,
+    [ValidateRange(1, 10000)][int]$MaxNewOperations = 3,
     [ValidateRange(0, 100)][int]$DuplicatePercentage = 20,
     [ValidateRange(1, 120)][int]$PollTimeoutSeconds = 30,
     [ValidateRange(0.1, 30)][double]$PollIntervalSeconds = 1,
@@ -44,7 +44,31 @@ $settings = Resolve-EuroTransitTrafficSettings -Profile $Profile -BoundParameter
     -RequestsPerMinute $RequestsPerMinute -TimeoutSeconds $TimeoutSeconds `
     -MaxConcurrency $MaxConcurrency -MinimumRequestVolumePercentage $MinimumRequestVolumePercentage
 
-$destination = Resolve-EuroTransitDestination -Service orders -Target $Target `
+# Rollout traffic must exercise candidate-local order creation. Its defaults are
+# deliberately lower than the generic rollout profile because every POST starts
+# a real saga. Explicit command-line values continue to win.
+$effectiveMode = if ($Profile -eq 'Rollout' -and -not $boundParameters.ContainsKey('Mode')) { 'Rollout' } else { $Mode }
+$effectiveTarget = if ($effectiveMode -eq 'Rollout' -and -not $boundParameters.ContainsKey('Target')) { 'Canary' } else { $Target }
+if ($Profile -eq 'Rollout' -and -not $boundParameters.ContainsKey('RequestsPerMinute')) {
+    $settings.RequestsPerMinute = 2
+}
+$plannedDurationSeconds = if ($settings.DurationSeconds -gt 0) {
+    $settings.DurationSeconds
+} else {
+    $settings.DurationMinutes * 60
+}
+$scheduledNewOperations = [Math]::Max(1, [Math]::Floor($plannedDurationSeconds * $settings.RequestsPerMinute / 60.0))
+$operationBudget = if ($effectiveMode -eq 'Rollout' -and -not $boundParameters.ContainsKey('MaxNewOperations')) {
+    $scheduledNewOperations
+} else {
+    $MaxNewOperations
+}
+$expectedNewOperations = $operationBudget
+$minimumRequiredNewOperations = [Math]::Ceiling(
+    $operationBudget * $settings.MinimumRequestVolumePercentage / 100.0
+)
+
+$destination = Resolve-EuroTransitDestination -Service orders -Target $effectiveTarget `
     -BaseUrl $BaseUrl -PortForwardServiceName $PortForwardServiceName `
     -ExpectedPublicHost $ExpectedPublicHost -ExpectedPublicScheme $ExpectedPublicScheme `
     -ExpectedPublicPort $ExpectedPublicPort -KubernetesNamespace $KubernetesNamespace
@@ -54,7 +78,7 @@ if (-not $token) {
 }
 $headers = @{ Authorization = "Bearer $token" }
 
-if ($Mode -eq 'ReadOnly') {
+if ($effectiveMode -eq 'ReadOnly') {
     Invoke-EuroTransitTraffic -Service orders -Destination $destination `
         -Path '/api/v1/orders' -Headers $headers -DurationMinutes $settings.DurationMinutes `
         -DurationSeconds $settings.DurationSeconds -RequestsPerMinute $settings.RequestsPerMinute `
@@ -71,7 +95,7 @@ if (-not $AcknowledgeSafePaymentGateway) {
     throw 'MoneyPath invokes Payments. Pass -AcknowledgeSafePaymentGateway only after manually confirming that Payments uses a local/test gateway rather than real Stripe.'
 }
 if ($settings.RequestsPerMinute -gt 10) {
-    throw 'Orders MoneyPath traffic is capped at 10 new operations per minute.'
+    throw 'Orders MoneyPath and Rollout traffic are capped at 10 new operations per minute.'
 }
 if ([bool]$TrainId -xor [bool]$SeatClass) {
     throw 'Specify both -TrainId and -SeatClass, or neither.'
@@ -98,7 +122,7 @@ $idempotencyMismatches = 0
 $catalogLookups = 0
 
 try {
-    while ((Get-Date) -lt $timing.Deadline -and $accepted -lt $MaxNewOperations) {
+    while ((Get-Date) -lt $timing.Deadline -and $accepted -lt $operationBudget) {
         $operationStarted = Get-Date
         $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         try {
@@ -137,6 +161,13 @@ try {
             $accepted++
             $orderId = [string]$create.Json.order_id
             $records[$records.Count - 1].operation_id = $orderId
+
+            if ($effectiveMode -eq 'Rollout') {
+                # Orders promotion owns successful local persistence/outbox
+                # creation, not the downstream saga result. Do not replay the
+                # idempotency key or wait for Inventory/Payments here.
+                continue
+            }
 
             if ((Get-Random -Minimum 0 -Maximum 100) -lt $DuplicatePercentage) {
                 $duplicateAttempts++
@@ -237,12 +268,17 @@ try {
         }
         finally {
             if ($operationStopwatch.IsRunning) { $operationStopwatch.Stop() }
-            Start-EuroTransitRateDelay -Deadline $timing.Deadline -BaseDelayMs $baseDelayMs -ElapsedMs $operationStopwatch.Elapsed.TotalMilliseconds
+            if ($accepted -lt $operationBudget) {
+                Start-EuroTransitRateDelay -Deadline $timing.Deadline -BaseDelayMs $baseDelayMs -ElapsedMs $operationStopwatch.Elapsed.TotalMilliseconds
+            }
         }
     }
 }
 finally {
-    $passed = switch ($ExpectedOutcome) {
+    $requestVolumeSatisfied = $accepted -ge $minimumRequiredNewOperations
+    $passed = if ($effectiveMode -eq 'Rollout') {
+        $failedTechnical -eq 0 -and $requestVolumeSatisfied
+    } else { switch ($ExpectedOutcome) {
         'Confirmed' {
             $confirmed -gt 0 -and $failedTechnical -eq 0 -and $pendingOrTimeout -eq 0 `
                 -and $idempotencyMismatches -eq 0
@@ -255,7 +291,7 @@ finally {
             $failedPaymentDeclined -gt 0 -and $failedTechnical -eq 0 `
                 -and $pendingOrTimeout -eq 0 -and $idempotencyMismatches -eq 0
         }
-    }
+    } }
     $classificationSource = if ($ExpectedOutcome -eq 'Confirmed') {
         'order-status-only-no-failure-reason-in-api'
     }
@@ -263,7 +299,8 @@ finally {
         'operator-expected-scenario-plus-terminal-order-status'
     }
     $summary = New-EuroTransitTrafficSummary -Service orders -Destination $destination `
-        -TrafficMode 'money-path' -Started $timing.Started -Finished (Get-Date) -Records $records `
+        -TrafficMode $(if ($effectiveMode -eq 'Rollout') { 'rollout-write' } else { 'money-path' }) `
+        -Started $timing.Started -Finished (Get-Date) -Records $records `
         -Passed $passed -AdditionalFields @{
             catalog_target = $catalogDestination.Target
             catalog_destination_service = $catalogDestination.DestinationService
@@ -272,6 +309,9 @@ finally {
             expected_outcome = $ExpectedOutcome
             failure_classification_source = $classificationSource
             new_operations = $accepted
+            expected_new_operations = $expectedNewOperations
+            minimum_required_new_operations = $minimumRequiredNewOperations
+            request_volume_satisfied = $requestVolumeSatisfied
             confirmed = $confirmed
             confirmed_orders = $confirmed
             failed_insufficient_inventory = $failedInsufficientInventory
