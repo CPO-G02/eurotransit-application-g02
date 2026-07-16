@@ -2,8 +2,14 @@
   min-height: calc(100vh - var(--nav-height));
   background-color: var(--bg-void);
   color: var(--text-primary);
-  padding: 3rem 1.5rem;
+  padding: 1rem 1.5rem 1.5rem 1.5rem;
   box-sizing: border-box;
+}
+
+.checkout-viewport.success-view {
+  height: calc(100vh - var(--nav-height));
+  min-height: 0;
+  overflow: hidden;
 }
 
 .checkout-container {
@@ -30,15 +36,15 @@
   font-family: var(--font-display);
   font-size: 1.9rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
   margin: 0;
   letter-spacing: -0.5px;
 }
 
 .checkout-error-banner {
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #fca5a5;
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  color: var(--status-red);
   padding: 1rem;
   border-radius: var(--radius-sm);
   margin-bottom: 1.5rem;
@@ -72,7 +78,7 @@
   font-family: var(--font-display);
   font-size: 1.05rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
   margin: 0 0 1.25rem 0;
 }
 
@@ -83,7 +89,7 @@
   font-family: var(--font-display);
   font-size: 1.2rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
   margin-bottom: 1.25rem;
   background: var(--bg-surface-raised);
   padding: 0.75rem 1rem;
@@ -172,13 +178,13 @@
 }
 
 .class-btn.active {
-  background: var(--accent-dim);
+  background: var(--accent);
   border-color: var(--accent);
   color: #ffffff;
 }
 
 .class-btn.active small {
-  color: var(--accent);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .price-breakdown {
@@ -203,7 +209,7 @@
   border-top: 1px dashed var(--border-default);
   font-weight: 700;
   font-size: 1.05rem;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .total-amount {
@@ -248,7 +254,7 @@
 .form-group input {
   background: var(--bg-base);
   border: 1px solid var(--border-default);
-  color: #ffffff;
+  color: var(--text-primary);
   padding: 0.7rem 0.9rem;
   border-radius: var(--radius-sm);
   font-size: 0.92rem;
@@ -263,6 +269,16 @@
 
 .form-group input:focus {
   border-color: var(--accent);
+}
+
+.form-group input[aria-invalid="true"] {
+  border-color: var(--status-red);
+}
+
+.field-error {
+  font-size: 0.72rem;
+  color: var(--status-red);
+  margin-top: 0.15rem;
 }
 
 .form-row {
@@ -306,11 +322,11 @@
 
 .success-card {
   max-width: 480px;
-  margin: 4rem auto;
+  margin: 0.75rem auto 0 auto;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  padding: 3rem 2rem;
+  padding: 1.75rem 2rem;
   text-align: center;
 }
 
@@ -322,25 +338,76 @@
   color: var(--status-green);
   background: var(--status-green-dim);
   border: 1px solid rgba(34, 197, 94, 0.3);
-  padding: 0.35rem 0.85rem;
+  padding: 0.3rem 0.8rem;
   border-radius: var(--radius-sm);
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.85rem;
   letter-spacing: 1px;
+}
+
+.success-badge.pending {
+  color: var(--status-blue);
+  background: var(--status-blue-dim);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.success-badge.failed {
+  color: var(--status-red);
+  background: var(--status-red-dim);
+  border: 1px solid rgba(220, 38, 38, 0.3);
 }
 
 .success-card h1 {
   font-family: var(--font-display);
-  font-size: 1.6rem;
+  font-size: 1.4rem;
   font-weight: 700;
-  color: #ffffff;
-  margin: 0 0 0.75rem 0;
+  color: var(--text-primary);
+  margin: 0 0 0.5rem 0;
 }
 
 .success-card p {
   color: var(--text-secondary);
-  font-size: 0.92rem;
-  line-height: 1.5;
-  margin-bottom: 2rem;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  margin-bottom: 1.25rem;
+}
+
+.order-summary {
+  text-align: left;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.order-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.83rem;
+  color: var(--text-secondary);
+}
+
+.order-summary-row:first-child {
+  padding-top: 0;
+}
+
+.order-summary-row span:last-child {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.order-summary-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 0.6rem;
+  margin-top: 0.15rem;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-primary);
 }
 
 .button-group {
@@ -378,5 +445,5 @@
 
 .btn-secondary:hover {
   background: var(--border-default);
-  color: #ffffff;
+  color: var(--text-primary);
 }

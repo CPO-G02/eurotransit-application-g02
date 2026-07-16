@@ -1096,6 +1096,44 @@ cluster-changing command was run.
 
 ---
 
+### 2026-07-16 14:00
+
+**Agent**
+
+OpenAI Codex
+
+**Task**
+
+Create safe PowerShell demo traffic generators.
+
+**Files Modified**
+
+- `demo/traffic/*.ps1`
+- `demo/traffic/README.md`
+- `.github/workflows/pr.yaml`
+
+**Summary**
+
+Added separate traffic scripts for Frontend, Catalog, Orders, Inventory,
+Payments, and Payment Gateway Simulator plus a parallel orchestrator. Results
+are persisted as CSV/JSON. Notifications is excluded.
+
+**Potential Risks**
+
+Internal services require operator-managed port-forwards. Inventory and Payments
+default to readiness traffic; real idempotent POST traffic requires explicit
+opt-in and authentication.
+
+**Confidence**
+
+High
+
+**Notes**
+
+No credentials are stored or printed.
+
+---
+
 ### 2026-07-15 16:31
 
 **Agent**
@@ -1273,6 +1311,75 @@ Final Retry/CircuitBreaker interaction check for Inventory showed that one logic
 **Confidence**
 
 High — full Orders tests and `check` passed after Docker-backed persistence, mapper, rollback, outbox JSONB, and client resilience coverage.
+## 2026-07-16 — Correct demo traffic after PR review
+
+**Agent:** OpenAI Codex
+
+**Task:** Fix the existing `feat/demo-traffic-scripts` PR without creating or
+merging another PR.
+
+**Files modified:**
+
+- `demo/traffic/Common.ps1`
+- `demo/traffic/Invoke-*.ps1`
+- `demo/traffic/Run-AllServicesTraffic.ps1`
+- `demo/traffic/README.md`
+- `demo/traffic/tests/*`
+- `.github/workflows/pr.yaml`
+- `docs/ai-mistakes.md`
+- `docs/agent-log.md`
+
+**Summary:** Made every target resolve to a validated destination, added
+independent routing per service, implemented the Orders money path, dynamic
+Inventory selection, unique/duplicate idempotency checks, explicit safe gateway
+modes, structured job output, cleanup, and local smoke tests.
+
+**Verification:** All PowerShell files parsed; the Python fixture compiled; the
+smoke suite passed for HTTP status handling, target mismatch, Orders terminal
+polling, Inventory/Payments duplicate identity, gateway modes, parallel
+orchestration, and job cleanup.
+
+**Risks:** Business modes consume real seats and may invoke the configured
+payment gateway. They remain explicit, low-rate, capped, and documented.
+
+---
+
+## 2026-07-16 — Complete second review of demo traffic PR
+
+**Agent:** OpenAI Codex
+
+**Task:** Correct only the remaining findings on PR #35 without modifying
+microservice implementation.
+
+**Files modified:**
+
+- `demo/traffic/Common.ps1`
+- `demo/traffic/Invoke-*.ps1`
+- `demo/traffic/Run-AllServicesTraffic.ps1`
+- `demo/traffic/README.md`
+- `demo/traffic/tests/*`
+- `docs/ai-logs.md`
+
+**Summary:** Added service-specific JWT inputs, strict public and Kubernetes DNS
+validation, isolated traffic profiles, an independent safe-gateway
+acknowledgement, controlled Orders failure scenarios, honest money-path outcome
+classification, contract guards against the real DTO/controller files, an
+optional read-only live smoke, and tested job cleanup.
+
+**Verification:** All PowerShell files parsed, the Python fixture compiled, and
+the smoke suite passed strict targets, missing/distinct tokens, HTTP error
+handling, confirmed/business-failure/timeout money paths, duplicate identity,
+gateway modes, ReadOnly/MoneyPath/PerServiceBusiness profiles, and cleanup.
+
+**Risks:** The mock does not prove deployed JWT audiences, Kafka progression,
+real downstream calls, gateway configuration, or end-to-end idempotency.
+Ctrl+C/SIGINT was not automated cross-platform; only the cleanup function and
+normal completion were tested.
+
+**Confidence:** High for local script contracts and mock behavior; medium for
+the optional live behavior until an operator runs the documented checks.
+
+---
 
 # 2026-07-16 - Circuit-breaker live-check k6 scripts
 
