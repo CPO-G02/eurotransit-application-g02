@@ -72,7 +72,8 @@ class InventoryClientTest {
             tokenUri = "http://localhost:8081/token",
             clientId = "orders-service",
             clientSecret = "test-secret",
-            scope = ""
+            scope = "",
+            issuerUri = "https://g02.cpo2026.it/auth/realms/eurotransit"
         )
         val client = client(token = tokenProvider)
 
