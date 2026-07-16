@@ -1,8 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
 import api from '../api/client';
+import type { OrderStatusResponse } from '../types/eurotransit';
 import './Checkout.css';
+
+const SUCCESS_STATUSES = ['confirmed', 'completed', 'paid'];
+const FAILURE_STATUSES = ['failed', 'declined', 'cancelled', 'canceled'];
+const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_MS = 30000;
 
 export const Checkout = () => {
   const { trainId } = useParams();
@@ -20,9 +26,16 @@ export const Checkout = () => {
   const [selectedClass, setSelectedClass] = useState<'Standard' | 'Business'>('Standard');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [bookingConfirmed, setBookingConfirmed] = useState(false);
+  const [bookingState, setBookingState] = useState<'form' | 'processing' | 'confirmed' | 'failed'>('form');
   const [confirmedOrder, setConfirmedOrder] = useState<any>(null);
-  const [cardData, setCardData] = useState({ number: '', expiry: '', cvc: '' });
+  const [cardData, setCardData] = useState({ holderName: '', number: '', expiry: '', cvc: '' });
+  const cancelledRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
 
   const multiplier = selectedClass === 'Business' ? 1.5 : 1.0;
   const totalAmount = pricePerPassenger * passengers * multiplier;
@@ -69,6 +82,41 @@ export const Checkout = () => {
 
   const expiryError = getExpiryError(cardData.expiry);
 
+  const pollForOutcome = async (orderId: string, token: string, deadline: number) => {
+    if (cancelledRef.current) return;
+
+    if (Date.now() > deadline) {
+      setError('We could not confirm your payment in time. Please check My Trips for the latest status before trying again.');
+      setBookingState('failed');
+      return;
+    }
+
+    try {
+      const res = await api.get<OrderStatusResponse[]>('/orders', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const match = (res.data || []).find((o) => o.order_id === orderId);
+      const status = match?.status?.toLowerCase();
+
+      if (status && SUCCESS_STATUSES.includes(status)) {
+        setConfirmedOrder(match);
+        setBookingState('confirmed');
+        return;
+      }
+
+      if (status && FAILURE_STATUSES.includes(status)) {
+        setError('Your payment could not be processed. Please check your card details and try again.');
+        setBookingState('failed');
+        return;
+      }
+    } catch {
+    }
+
+    if (!cancelledRef.current) {
+      setTimeout(() => pollForOutcome(orderId, token, deadline), POLL_INTERVAL_MS);
+    }
+  };
+
   const handleConfirmBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     if (hasDeparted) {
@@ -98,11 +146,33 @@ export const Checkout = () => {
         headers: { Authorization: `Bearer ${keycloak.token}` }
       });
 
-      setConfirmedOrder(response.data);
-      setBookingConfirmed(true);
+      const orderId = response.data?.order_id || response.data?.id;
+      const initialStatus = response.data?.status?.toLowerCase();
+
+      setIsSubmitting(false);
+
+      if (initialStatus && FAILURE_STATUSES.includes(initialStatus)) {
+        setError('Your payment could not be processed. Please check your card details and try again.');
+        setBookingState('failed');
+        return;
+      }
+
+      if (initialStatus && SUCCESS_STATUSES.includes(initialStatus)) {
+        setConfirmedOrder(response.data);
+        setBookingState('confirmed');
+        return;
+      }
+
+      if (!orderId || !keycloak.token) {
+        setError('Booking submitted, but we could not verify the outcome automatically. Please check My Trips shortly.');
+        setBookingState('failed');
+        return;
+      }
+
+      setBookingState('processing');
+      pollForOutcome(orderId, keycloak.token, Date.now() + POLL_TIMEOUT_MS);
     } catch (err: any) {
       setError(err.message || 'Failed to complete reservation.');
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -117,7 +187,35 @@ export const Checkout = () => {
     });
   };
 
-  if (bookingConfirmed) {
+  if (bookingState === 'processing') {
+    return (
+      <div className="checkout-viewport success-view">
+        <div className="success-card">
+          <div className="success-badge pending">PROCESSING</div>
+          <h1>Confirming your payment&hellip;</h1>
+          <p>We're verifying your payment with the network. This usually takes a few seconds - please don't close this page.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (bookingState === 'failed') {
+    return (
+      <div className="checkout-viewport success-view">
+        <div className="success-card">
+          <div className="success-badge failed">PAYMENT FAILED</div>
+          <h1>We couldn't complete this booking</h1>
+          <p>{error || 'Your payment could not be processed.'}</p>
+          <div className="button-group">
+            <button className="btn-secondary" onClick={() => navigate('/my-trips')}>Check My Trips</button>
+            <button className="btn-primary" onClick={() => { setError(null); setBookingState('form'); }}>Try Again</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (bookingState === 'confirmed') {
     const orderReference = confirmedOrder?.order_id || confirmedOrder?.id || trainId;
     const cardLast4 = cardData.number.slice(-4);
 
@@ -152,6 +250,10 @@ export const Checkout = () => {
             <div className="order-summary-row">
               <span>Passengers</span>
               <span>{passengers}</span>
+            </div>
+            <div className="order-summary-row">
+              <span>Cardholder</span>
+              <span>{cardData.holderName}</span>
             </div>
             <div className="order-summary-row">
               <span>Paid with</span>
@@ -262,7 +364,19 @@ export const Checkout = () => {
                 <h3>Payment Details</h3>
                 <span className="security-tag">TLS 256-BIT ENCRYPTED</span>
               </div>
-              
+
+              <div className="form-group">
+                <label htmlFor="card-holder">Cardholder Name</label>
+                <input
+                  id="card-holder"
+                  type="text"
+                  placeholder="MARIO ROSSI"
+                  value={cardData.holderName}
+                  onChange={(e) => setCardData({ ...cardData, holderName: e.target.value.toUpperCase() })}
+                  required
+                />
+              </div>
+
               <div className="form-group">
                 <label htmlFor="card-number">Card Number</label>
                 <input 
@@ -311,9 +425,9 @@ export const Checkout = () => {
               <button 
                 type="submit" 
                 className="btn-pay" 
-                disabled={isSubmitting || hasDeparted || cardData.number.length < 16 || cardData.expiry.length < 4 || !!expiryError || cardData.cvc.length < 3}
+                disabled={isSubmitting || bookingState !== 'form' || hasDeparted || !cardData.holderName.trim() || cardData.number.length < 16 || cardData.expiry.length < 4 || !!expiryError || cardData.cvc.length < 3}
               >
-                {hasDeparted ? 'Train departed' : isSubmitting ? 'Processing Transaction...' : `Authorize & Pay €${totalAmount.toFixed(2)}`}
+                {hasDeparted ? 'Train departed' : isSubmitting ? 'Submitting...' : `Authorize & Pay €${totalAmount.toFixed(2)}`}
               </button>
 
               <p className="payment-disclaimer">

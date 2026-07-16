@@ -344,6 +344,18 @@
   letter-spacing: 1px;
 }
 
+.success-badge.pending {
+  color: var(--status-blue);
+  background: var(--status-blue-dim);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.success-badge.failed {
+  color: var(--status-red);
+  background: var(--status-red-dim);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+}
+
 .success-card h1 {
   font-family: var(--font-display);
   font-size: 1.4rem;

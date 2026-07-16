@@ -195,7 +195,16 @@ export const Catalog = () => {
 
             <div className="input-group">
               <label htmlFor="date-input">Departure Date</label>
-              <input id="date-input" type="date" value={departureDate} onChange={(e) => setDepartureDate(e.target.value)} />
+              <input
+                id="date-input"
+                type="date"
+                min={todayIso}
+                value={departureDate}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setDepartureDate(value && value < todayIso ? todayIso : value);
+                }}
+              />
             </div>
 
             <div className="input-group">
