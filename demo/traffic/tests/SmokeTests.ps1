@@ -187,6 +187,64 @@ try {
     $timeout = Invoke-EuroTransitHttpRequest -Uri ([uri]"$baseUrl/delay/1500") -TimeoutSeconds 1
     Assert-True ($timeout.ErrorType -eq 'timeout') "Expected timeout classification, got '$($timeout.ErrorType)'."
 
+    $trafficDestination = Resolve-EuroTransitDestination -Service catalog -Target Stable `
+        -BaseUrl $baseUrl -PortForwardServiceName eurotransit-catalog
+
+    $successStream = @(& {
+        Invoke-EuroTransitTraffic -Service catalog -Destination $trafficDestination `
+            -Path '/status/200' -DurationSeconds 1 -RequestsPerMinute 120 `
+            -TimeoutSeconds 2 -MaxConcurrency 2 -MinimumRequestVolumePercentage 100 `
+            -OutputDirectory $outputDirectory
+    } 6>&1)
+    $successSummary = @($successStream | Where-Object {
+        $_.PSObject.TypeNames -contains 'EuroTransit.TrafficSummary'
+    })[0]
+    $successText = ($successStream | ForEach-Object { $_.ToString() }) -join "`n"
+    Assert-True ($successText -match 'Request 001 on Catalog: OK \(200, \d+ ms\)') 'Per-request OK output is missing or verbose.'
+    Assert-True ($successText -match 'Catalog: PASS \| Requests:') 'Compact summary output is missing.'
+    Assert-True ($successSummary.timeout_seconds -eq 2 -and $successSummary.max_concurrency -eq 2) 'Configurable timeout/concurrency were not preserved in the structured summary.'
+
+    $testSecret = 'traffic-' + 'test-secret'
+    $timeoutStream = @(& {
+        Invoke-EuroTransitTraffic -Service catalog -Destination $trafficDestination `
+            -Path '/delay/1500' -DurationSeconds 1 -RequestsPerMinute 120 `
+            -TimeoutSeconds 1 -MaxConcurrency 2 -MinimumRequestVolumePercentage 100 `
+            -Headers @{ Authorization = "Bearer $testSecret" } `
+            -OutputDirectory $outputDirectory
+    } 6>&1)
+    $timeoutSummary = @($timeoutStream | Where-Object {
+        $_.PSObject.TypeNames -contains 'EuroTransit.TrafficSummary'
+    })[0]
+    $timeoutText = ($timeoutStream | ForEach-Object { $_.ToString() }) -join "`n"
+    Assert-True ($timeoutText -match 'FAIL \(TIMEOUT, \d+ ms\)') 'Per-request timeout output is missing.'
+    Assert-True ($timeoutSummary.timeouts -ge 1) 'Timeouts were not counted in the structured summary.'
+    $timeoutCsv = Get-ChildItem $outputDirectory -Filter 'catalog-Stable-*.csv' |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    $timeoutRows = @(Import-Csv $timeoutCsv.FullName)
+    Assert-True ($timeoutRows[0].PSObject.Properties.Name -contains 'error_message') 'CSV evidence is missing error_message.'
+    Assert-True ([bool]$timeoutRows[0].error_message) 'Timeout CSV evidence did not preserve an error message.'
+
+    $slowStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $slowSummary = Invoke-EuroTransitTraffic -Service catalog -Destination $trafficDestination `
+        -Path '/delay/500' -DurationSeconds 2 -RequestsPerMinute 300 `
+        -TimeoutSeconds 2 -MaxConcurrency 5 -MinimumRequestVolumePercentage 90 `
+        -OutputDirectory $outputDirectory
+    $slowStopwatch.Stop()
+    Assert-True ($slowSummary.actual_requests -ge $slowSummary.minimum_required_requests) 'Bounded concurrency lost a major share of scheduled slow traffic.'
+    Assert-True ($slowSummary.max_concurrency -eq 5 -and $slowSummary.request_volume_satisfied) 'Bounded concurrency contract was not reported.'
+    Assert-True ($slowStopwatch.Elapsed.TotalSeconds -ge 1.8 -and $slowStopwatch.Elapsed.TotalSeconds -lt 4) 'Traffic duration did not track the configured scheduling window plus in-flight cleanup.'
+
+    $lowVolumeSummary = Invoke-EuroTransitTraffic -Service catalog -Destination $trafficDestination `
+        -Path '/delay/1500' -DurationSeconds 1 -RequestsPerMinute 600 `
+        -TimeoutSeconds 2 -MaxConcurrency 1 -MinimumRequestVolumePercentage 80 `
+        -OutputDirectory $outputDirectory
+    Assert-True (-not $lowVolumeSummary.passed -and -not $lowVolumeSummary.request_volume_satisfied) 'Insufficient generated request volume did not fail the run.'
+    Assert-True ($lowVolumeSummary.actual_requests -lt $lowVolumeSummary.minimum_required_requests) 'Low-volume fixture unexpectedly met its request target.'
+
+    $evidenceText = (Get-ChildItem $outputDirectory -File | Get-Content -Raw) -join "`n"
+    Assert-True ($timeoutText -notmatch [regex]::Escape($testSecret)) 'Access token leaked to console output.'
+    Assert-True ($evidenceText -notmatch [regex]::Escape($testSecret)) 'Access token leaked to CSV or JSON evidence.'
+
     $env:EUROTRANSIT_ACCESS_TOKEN = $null
     $env:EUROTRANSIT_ORDERS_ACCESS_TOKEN = $null
     $env:EUROTRANSIT_INVENTORY_ACCESS_TOKEN = $null

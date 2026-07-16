@@ -6,6 +6,8 @@ import it.polito.eurotransit.orders.repositories.OrderRepository
 import it.polito.eurotransit.orders.repositories.OutboxRepository
 import it.polito.eurotransit.orders.repositories.ProcessedRequestRepository
 import it.polito.eurotransit.orders.service.OrderServiceImpl 
+import it.polito.eurotransit.orders.metrics.OrdersPromotionMetrics
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
@@ -21,7 +23,13 @@ class SagaIntegrationTest {
         val outboxRepo = mock<OutboxRepository>()
         val objectMapper = ObjectMapper()
 
-        val orderService = OrderServiceImpl(orderRepo, requestRepo, outboxRepo, objectMapper)
+        val orderService = OrderServiceImpl(
+            orderRepo,
+            requestRepo,
+            outboxRepo,
+            objectMapper,
+            OrdersPromotionMetrics(SimpleMeterRegistry())
+        )
 
         val request = OrderRequest(
             idempotencyKey = "idem-999",

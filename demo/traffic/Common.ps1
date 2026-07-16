@@ -26,6 +26,109 @@ function Get-Percentile {
     return [Math]::Round($sorted[[Math]::Max(0, $index)], 2)
 }
 
+function Get-EuroTransitTrafficProfile {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('Smoke', 'Rollout')]
+        [string]$Profile
+    )
+
+    if ($Profile -eq 'Rollout') {
+        return [pscustomobject]@{
+            DurationMinutes = 25
+            DurationSeconds = 0
+            RequestsPerMinute = 120
+            TimeoutSeconds = 5
+            MaxConcurrency = 5
+            MinimumRequestVolumePercentage = 90
+        }
+    }
+
+    return [pscustomobject]@{
+        DurationMinutes = 0
+        DurationSeconds = 60
+        RequestsPerMinute = 10
+        TimeoutSeconds = 3
+        MaxConcurrency = 1
+        MinimumRequestVolumePercentage = 80
+    }
+}
+
+function Resolve-EuroTransitTrafficSettings {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('Smoke', 'Rollout')]
+        [string]$Profile,
+        [Parameter(Mandatory)][hashtable]$BoundParameters,
+        [int]$DurationMinutes,
+        [int]$DurationSeconds,
+        [int]$RequestsPerMinute,
+        [int]$TimeoutSeconds,
+        [int]$MaxConcurrency,
+        [int]$MinimumRequestVolumePercentage
+    )
+
+    $defaults = Get-EuroTransitTrafficProfile -Profile $Profile
+    $durationWasExplicit = $BoundParameters.ContainsKey('DurationMinutes') -or
+        $BoundParameters.ContainsKey('DurationSeconds')
+
+    return [pscustomobject]@{
+        DurationMinutes = if ($durationWasExplicit) { $DurationMinutes } else { $defaults.DurationMinutes }
+        DurationSeconds = if ($durationWasExplicit) { $DurationSeconds } else { $defaults.DurationSeconds }
+        RequestsPerMinute = if ($BoundParameters.ContainsKey('RequestsPerMinute')) { $RequestsPerMinute } else { $defaults.RequestsPerMinute }
+        TimeoutSeconds = if ($BoundParameters.ContainsKey('TimeoutSeconds')) { $TimeoutSeconds } else { $defaults.TimeoutSeconds }
+        MaxConcurrency = if ($BoundParameters.ContainsKey('MaxConcurrency')) { $MaxConcurrency } else { $defaults.MaxConcurrency }
+        MinimumRequestVolumePercentage = if ($BoundParameters.ContainsKey('MinimumRequestVolumePercentage')) {
+            $MinimumRequestVolumePercentage
+        } else {
+            $defaults.MinimumRequestVolumePercentage
+        }
+    }
+}
+
+function Get-EuroTransitDisplayName {
+    param([Parameter(Mandatory)][string]$Service)
+
+    switch ($Service) {
+        'payment-gateway-sim' { 'Payment Gateway Sim' }
+        default {
+            (Get-Culture).TextInfo.ToTitleCase($Service.Replace('-', ' '))
+        }
+    }
+}
+
+function Write-EuroTransitRequestResult {
+    param([Parameter(Mandatory)][psobject]$Record)
+
+    $displayName = Get-EuroTransitDisplayName -Service $Record.service
+    $number = ([int]$Record.request_number).ToString('000')
+    $latency = [Math]::Round([double]$Record.latency_ms)
+    if ($Record.outcome -eq 'success') {
+        Write-Host "Request $number on ${displayName}: OK ($($Record.status_code), $latency ms)"
+        return
+    }
+
+    $reason = if ($Record.error_type -eq 'timeout') {
+        'TIMEOUT'
+    } elseif ($null -ne $Record.status_code) {
+        "HTTP $($Record.status_code)"
+    } elseif ($Record.error_type) {
+        ([string]$Record.error_type).ToUpperInvariant()
+    } else {
+        'UNKNOWN'
+    }
+    Write-Host "Request $number on ${displayName}: FAIL ($reason, $latency ms)"
+}
+
+function Write-EuroTransitCompactSummary {
+    param([Parameter(Mandatory)][psobject]$Summary)
+
+    $displayName = Get-EuroTransitDisplayName -Service $Summary.service
+    $result = if ($Summary.passed) { 'PASS' } else { 'FAIL' }
+    $p95 = [Math]::Round([double]$Summary.p95_latency_ms)
+    Write-Host "$displayName`: $result | Requests: $($Summary.total_requests) | OK: $($Summary.successes) | FAIL: $($Summary.failures) | Timeouts: $($Summary.timeouts) | P95: $p95 ms"
+}
+
 function Add-EuroTransitTypeName {
     param(
         [Parameter(Mandatory)][psobject]$InputObject,
@@ -249,11 +352,27 @@ function Write-EuroTransitResults {
         [Parameter(Mandatory)][datetime]$Started
     )
 
+    $normalizedRecords = @($Records)
+    for ($index = 0; $index -lt $normalizedRecords.Count; $index++) {
+        $record = $normalizedRecords[$index]
+        $wasMissingRequestNumber = $record.PSObject.Properties.Name -notcontains 'request_number'
+        if ($wasMissingRequestNumber) {
+            $record | Add-Member -NotePropertyName request_number -NotePropertyValue ($index + 1)
+        }
+        if ($record.PSObject.Properties.Name -notcontains 'error_message') {
+            $record | Add-Member -NotePropertyName error_message -NotePropertyValue $null
+        }
+        if ($wasMissingRequestNumber) {
+            Write-EuroTransitRequestResult -Record $record
+        }
+    }
+
     New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
     $stamp = $Started.ToUniversalTime().ToString('yyyyMMddTHHmmssfffZ')
     $prefix = Join-Path $OutputDirectory "$($Summary.service)-$($Summary.target)-$stamp"
-    @($Records) | Export-Csv -NoTypeInformation -Encoding UTF8 -Path "$prefix.csv"
+    $normalizedRecords | Export-Csv -NoTypeInformation -Encoding UTF8 -Path "$prefix.csv"
     $Summary | ConvertTo-Json -Depth 12 | Set-Content -Encoding UTF8 -Path "$prefix-summary.json"
+    Write-EuroTransitCompactSummary -Summary $Summary
 }
 
 function New-EuroTransitTrafficSummary {
@@ -315,7 +434,9 @@ function Invoke-EuroTransitTraffic {
         [int]$DurationMinutes = 20,
         [int]$DurationSeconds = 0,
         [ValidateRange(1, 6000)][int]$RequestsPerMinute = 60,
-        [int]$TimeoutSeconds = 10,
+        [ValidateRange(1, 300)][int]$TimeoutSeconds = 10,
+        [ValidateRange(1, 50)][int]$MaxConcurrency = 1,
+        [ValidateRange(1, 100)][int]$MinimumRequestVolumePercentage = 80,
         [hashtable]$Headers = @{},
         [scriptblock]$BodyFactory,
         [int[]]$ExpectedStatusCodes = @(200),
@@ -327,38 +448,145 @@ function Invoke-EuroTransitTraffic {
 
     $timing = Get-EuroTransitDeadline -DurationMinutes $DurationMinutes -DurationSeconds $DurationSeconds
     $records = [System.Collections.Generic.List[object]]::new()
+    $inFlight = [System.Collections.Generic.List[object]]::new()
     $baseDelayMs = 60000.0 / $RequestsPerMinute
     $uri = Join-EuroTransitUri -BaseUri $Destination.BaseUri -Path $Path
+    $plannedDurationSeconds = ($timing.Deadline - $timing.Started).TotalSeconds
+    $expectedRequests = [Math]::Max(1, [Math]::Floor($plannedDurationSeconds * $RequestsPerMinute / 60.0))
+    $minimumRequiredRequests = [Math]::Ceiling($expectedRequests * $MinimumRequestVolumePercentage / 100.0)
+    $nextScheduled = $timing.Started
+    $requestNumber = 0
+    $client = [System.Net.Http.HttpClient]::new()
+    $client.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
 
-    try {
-        while ((Get-Date) -lt $timing.Deadline) {
-            $requestStarted = Get-Date
-            $body = if ($BodyFactory) { & $BodyFactory $records.Count } else { $null }
-            $result = Invoke-EuroTransitHttpRequest -Uri $uri -Method $Method -Headers $Headers -Body $body -TimeoutSeconds $TimeoutSeconds
-            $expected = $null -ne $result.StatusCode -and $ExpectedStatusCodes -contains $result.StatusCode
-            $records.Add([pscustomobject]@{
+    $completeRequests = {
+        param([switch]$WaitForOne)
+
+        if ($inFlight.Count -eq 0) { return }
+        if ($WaitForOne) {
+            $tasks = [System.Threading.Tasks.Task[]]@($inFlight | ForEach-Object Task)
+            [void][System.Threading.Tasks.Task]::WaitAny($tasks, 100)
+        }
+
+        foreach ($pending in @($inFlight | Where-Object { $_.Task.IsCompleted })) {
+            $statusCode = $null
+            $errorType = $null
+            $errorMessage = $null
+            $response = $null
+            try {
+                $response = $pending.Task.GetAwaiter().GetResult()
+                $statusCode = [int]$response.StatusCode
+            }
+            catch [System.Threading.Tasks.TaskCanceledException] {
+                $errorType = 'timeout'
+                $errorMessage = "Request exceeded the configured timeout of $TimeoutSeconds seconds."
+            }
+            catch {
+                $errorType = 'network'
+                $errorMessage = $_.Exception.Message
+            }
+            finally {
+                $pending.Stopwatch.Stop()
+            }
+
+            $expected = $null -ne $statusCode -and $ExpectedStatusCodes -contains $statusCode
+            $record = [pscustomobject]@{
+                request_number = $pending.RequestNumber
+                timestamp = $pending.Started.ToUniversalTime().ToString('o')
                 service = $Service
                 target = $Destination.Target
                 destination_service = $Destination.DestinationService
-                timestamp = $requestStarted.ToUniversalTime().ToString('o')
                 method = $Method
                 uri = $uri.AbsoluteUri
-                status_code = $result.StatusCode
+                status_code = $statusCode
                 outcome = if ($expected) { 'success' } else { 'failure' }
-                error_type = if ($result.ErrorType) { $result.ErrorType } elseif (-not $expected) { 'http' } else { $null }
-                latency_ms = $result.LatencyMs
-            })
-            Start-EuroTransitRateDelay -Deadline $timing.Deadline -BaseDelayMs $baseDelayMs -ElapsedMs $result.LatencyMs
+                error_type = if ($errorType) { $errorType } elseif (-not $expected) { 'http' } else { $null }
+                error_message = $errorMessage
+                latency_ms = [Math]::Round($pending.Stopwatch.Elapsed.TotalMilliseconds, 2)
+            }
+            $records.Add($record)
+            Write-EuroTransitRequestResult -Record $record
+
+            if ($null -ne $response) { $response.Dispose() }
+            $pending.Request.Dispose()
+            $pending.Cancellation.Dispose()
+            [void]$inFlight.Remove($pending)
+        }
+    }
+
+    try {
+        while ((Get-Date) -lt $timing.Deadline -or $inFlight.Count -gt 0) {
+            & $completeRequests
+            $now = Get-Date
+            if ($now -lt $timing.Deadline -and $now -ge $nextScheduled -and $inFlight.Count -lt $MaxConcurrency) {
+                $requestNumber++
+                $requestStarted = Get-Date
+                $request = [System.Net.Http.HttpRequestMessage]::new(
+                    [System.Net.Http.HttpMethod]::new($Method),
+                    $uri
+                )
+                foreach ($header in $Headers.GetEnumerator()) {
+                    [void]$request.Headers.TryAddWithoutValidation([string]$header.Key, [string]$header.Value)
+                }
+                $body = if ($BodyFactory) { & $BodyFactory ($requestNumber - 1) } else { $null }
+                if ($null -ne $body) {
+                    $json = $body | ConvertTo-Json -Depth 12 -Compress
+                    $request.Content = [System.Net.Http.StringContent]::new(
+                        $json,
+                        [System.Text.Encoding]::UTF8,
+                        'application/json'
+                    )
+                }
+                $cancellation = [System.Threading.CancellationTokenSource]::new()
+                $cancellation.CancelAfter([TimeSpan]::FromSeconds($TimeoutSeconds))
+                $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                $task = $client.SendAsync(
+                    $request,
+                    [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead,
+                    $cancellation.Token
+                )
+                $inFlight.Add([pscustomobject]@{
+                    RequestNumber = $requestNumber
+                    Started = $requestStarted
+                    Request = $request
+                    Cancellation = $cancellation
+                    Stopwatch = $stopwatch
+                    Task = $task
+                })
+                $nextScheduled = $timing.Started.AddMilliseconds($requestNumber * $baseDelayMs)
+                continue
+            }
+
+            if ($inFlight.Count -gt 0) {
+                & $completeRequests -WaitForOne
+            } else {
+                $sleepMs = [Math]::Min(100, [Math]::Max(1, ($nextScheduled - (Get-Date)).TotalMilliseconds))
+                Start-Sleep -Milliseconds ([int]$sleepMs)
+            }
         }
     }
     finally {
+        while ($inFlight.Count -gt 0) {
+            & $completeRequests -WaitForOne
+        }
+        $client.Dispose()
         $finished = Get-Date
         $failures = @($records | Where-Object outcome -eq 'failure').Count
         $failureRate = if ($records.Count) { $failures / $records.Count } else { 1 }
+        $requestVolumeSatisfied = $records.Count -ge $minimumRequiredRequests
         $summary = New-EuroTransitTrafficSummary -Service $Service -Destination $Destination -TrafficMode $TrafficMode `
             -Started $timing.Started -Finished $finished -Records $records `
-            -Passed ($records.Count -gt 0 -and $failureRate -le $MaximumFailureRate) `
-            -AdditionalFields @{ application_traffic = $ApplicationTraffic }
+            -Passed ($records.Count -gt 0 -and $failureRate -le $MaximumFailureRate -and $requestVolumeSatisfied) `
+            -AdditionalFields @{
+                application_traffic = $ApplicationTraffic
+                expected_requests = $expectedRequests
+                minimum_required_requests = $minimumRequiredRequests
+                actual_requests = $records.Count
+                request_volume_satisfied = $requestVolumeSatisfied
+                timeout_seconds = $TimeoutSeconds
+                max_concurrency = $MaxConcurrency
+                minimum_request_volume_percentage = $MinimumRequestVolumePercentage
+            }
         Write-EuroTransitResults -Records $records -Summary $summary -OutputDirectory $OutputDirectory -Started $timing.Started
         $summary
     }

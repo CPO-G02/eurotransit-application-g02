@@ -27,13 +27,22 @@ param(
     [ValidateRange(0.1, 30)][double]$PollIntervalSeconds = 1,
     [string]$UserId = 'demo-user',
     [string]$UserEmail = 'demo-user@example.invalid',
+    [ValidateSet('Smoke', 'Rollout')][string]$Profile = 'Smoke',
     [int]$DurationMinutes = 20,
     [int]$DurationSeconds = 0,
     [ValidateRange(1, 6000)][int]$RequestsPerMinute = 60,
+    [ValidateRange(1, 300)][int]$TimeoutSeconds,
+    [ValidateRange(1, 50)][int]$MaxConcurrency,
+    [ValidateRange(1, 100)][int]$MinimumRequestVolumePercentage,
     [string]$OutputDirectory = (Join-Path $PSScriptRoot 'results')
 )
 
+$boundParameters = @{} + $PSBoundParameters
 . (Join-Path $PSScriptRoot 'Common.ps1')
+$settings = Resolve-EuroTransitTrafficSettings -Profile $Profile -BoundParameters $boundParameters `
+    -DurationMinutes $DurationMinutes -DurationSeconds $DurationSeconds `
+    -RequestsPerMinute $RequestsPerMinute -TimeoutSeconds $TimeoutSeconds `
+    -MaxConcurrency $MaxConcurrency -MinimumRequestVolumePercentage $MinimumRequestVolumePercentage
 
 $destination = Resolve-EuroTransitDestination -Service orders -Target $Target `
     -BaseUrl $BaseUrl -PortForwardServiceName $PortForwardServiceName `
@@ -47,8 +56,10 @@ $headers = @{ Authorization = "Bearer $token" }
 
 if ($Mode -eq 'ReadOnly') {
     Invoke-EuroTransitTraffic -Service orders -Destination $destination `
-        -Path '/api/v1/orders' -Headers $headers -DurationMinutes $DurationMinutes `
-        -DurationSeconds $DurationSeconds -RequestsPerMinute $RequestsPerMinute `
+        -Path '/api/v1/orders' -Headers $headers -DurationMinutes $settings.DurationMinutes `
+        -DurationSeconds $settings.DurationSeconds -RequestsPerMinute $settings.RequestsPerMinute `
+        -TimeoutSeconds $settings.TimeoutSeconds -MaxConcurrency $settings.MaxConcurrency `
+        -MinimumRequestVolumePercentage $settings.MinimumRequestVolumePercentage `
         -TrafficMode 'read-only' -OutputDirectory $OutputDirectory
     return
 }
@@ -59,7 +70,7 @@ if (-not $AcknowledgeMoneyPathSideEffects) {
 if (-not $AcknowledgeSafePaymentGateway) {
     throw 'MoneyPath invokes Payments. Pass -AcknowledgeSafePaymentGateway only after manually confirming that Payments uses a local/test gateway rather than real Stripe.'
 }
-if ($RequestsPerMinute -gt 10) {
+if ($settings.RequestsPerMinute -gt 10) {
     throw 'Orders MoneyPath traffic is capped at 10 new operations per minute.'
 }
 if ([bool]$TrainId -xor [bool]$SeatClass) {
@@ -70,11 +81,11 @@ $catalogDestination = Resolve-EuroTransitDestination -Service catalog -Target $C
     -BaseUrl $CatalogBaseUrl -PortForwardServiceName $CatalogPortForwardServiceName `
     -ExpectedPublicHost $ExpectedPublicHost -ExpectedPublicScheme $ExpectedPublicScheme `
     -ExpectedPublicPort $ExpectedPublicPort -KubernetesNamespace $KubernetesNamespace
-$timing = Get-EuroTransitDeadline -DurationMinutes $DurationMinutes -DurationSeconds $DurationSeconds
+$timing = Get-EuroTransitDeadline -DurationMinutes $settings.DurationMinutes -DurationSeconds $settings.DurationSeconds
 $records = [System.Collections.Generic.List[object]]::new()
 $endToEndLatencies = [System.Collections.Generic.List[double]]::new()
 $statusSequences = [System.Collections.Generic.List[string]]::new()
-$baseDelayMs = 60000.0 / $RequestsPerMinute
+$baseDelayMs = 60000.0 / $settings.RequestsPerMinute
 $accepted = 0
 $confirmed = 0
 $failedInsufficientInventory = 0
@@ -92,7 +103,8 @@ try {
         $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         try {
             $selection = Get-EuroTransitCatalogSelection -Destination $catalogDestination `
-                -Quantity $Quantity -TrainId $TrainId -SeatClass $SeatClass
+                -Quantity $Quantity -TrainId $TrainId -SeatClass $SeatClass `
+                -TimeoutSeconds $settings.TimeoutSeconds
             $catalogLookups++
             $idempotencyKey = "demo-order-$([guid]::NewGuid())"
             $body = @{
@@ -106,7 +118,7 @@ try {
                 currency = $selection.currency
             }
             $ordersUri = Join-EuroTransitUri -BaseUri $destination.BaseUri -Path '/api/v1/orders'
-            $create = Invoke-EuroTransitHttpRequest -Uri $ordersUri -Method POST -Headers $headers -Body $body
+            $create = Invoke-EuroTransitHttpRequest -Uri $ordersUri -Method POST -Headers $headers -Body $body -TimeoutSeconds $settings.TimeoutSeconds
             $createValid = $create.StatusCode -eq 202 -and $null -ne $create.Json -and $create.Json.order_id
             $records.Add([pscustomobject]@{
                 service = 'orders'; target = $destination.Target; destination_service = $destination.DestinationService
@@ -128,7 +140,7 @@ try {
 
             if ((Get-Random -Minimum 0 -Maximum 100) -lt $DuplicatePercentage) {
                 $duplicateAttempts++
-                $duplicate = Invoke-EuroTransitHttpRequest -Uri $ordersUri -Method POST -Headers $headers -Body $body
+                $duplicate = Invoke-EuroTransitHttpRequest -Uri $ordersUri -Method POST -Headers $headers -Body $body -TimeoutSeconds $settings.TimeoutSeconds
                 $duplicateId = if ($duplicate.Json) { [string]$duplicate.Json.order_id } else { $null }
                 $duplicateValid = $duplicate.StatusCode -in @(202, 409) -and $duplicateId -eq $orderId
                 if (-not $duplicateValid) {
@@ -151,7 +163,7 @@ try {
             $observedStatuses = [System.Collections.Generic.List[string]]::new()
             while ((Get-Date) -lt $pollDeadline -and (Get-Date) -lt $timing.Deadline) {
                 $pollUri = Join-EuroTransitUri -BaseUri $destination.BaseUri -Path "/api/v1/orders/$orderId"
-                $poll = Invoke-EuroTransitHttpRequest -Uri $pollUri -Headers $headers
+                $poll = Invoke-EuroTransitHttpRequest -Uri $pollUri -Headers $headers -TimeoutSeconds $settings.TimeoutSeconds
                 $pollValid = $poll.StatusCode -eq 200 -and $null -ne $poll.Json -and $poll.Json.order_id -eq $orderId
                 $status = if ($pollValid) { [string]$poll.Json.status } else { $null }
                 $records.Add([pscustomobject]@{

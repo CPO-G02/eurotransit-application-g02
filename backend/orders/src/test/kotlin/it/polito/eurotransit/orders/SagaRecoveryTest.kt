@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import it.polito.eurotransit.orders.repositories.OutboxRepository
 import it.polito.eurotransit.orders.entities.OutboxEntry
 import it.polito.eurotransit.orders.scheduler.OutboxProcessor
+import it.polito.eurotransit.orders.metrics.OrdersPromotionMetrics
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -26,7 +28,12 @@ class SagaRecoveryTest {
         outboxRepo = mock()
         kafkaTemplate = mock()
         
-        outboxProcessor = OutboxProcessor(outboxRepo, kafkaTemplate, objectMapper)
+        outboxProcessor = OutboxProcessor(
+            outboxRepo,
+            kafkaTemplate,
+            objectMapper,
+            OrdersPromotionMetrics(SimpleMeterRegistry())
+        )
     }
 
     @Test

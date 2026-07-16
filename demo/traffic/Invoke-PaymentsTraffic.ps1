@@ -12,13 +12,22 @@ param(
     [string]$UserId = 'demo-user',
     [ValidateRange(1, 20)][int]$MaxNewOperations = 3,
     [ValidateRange(0, 100)][int]$DuplicatePercentage = 90,
+    [ValidateSet('Smoke', 'Rollout')][string]$Profile = 'Smoke',
     [int]$DurationMinutes = 20,
     [int]$DurationSeconds = 0,
     [ValidateRange(1, 6000)][int]$RequestsPerMinute = 60,
+    [ValidateRange(1, 300)][int]$TimeoutSeconds,
+    [ValidateRange(1, 50)][int]$MaxConcurrency,
+    [ValidateRange(1, 100)][int]$MinimumRequestVolumePercentage,
     [string]$OutputDirectory = (Join-Path $PSScriptRoot 'results')
 )
 
+$boundParameters = @{} + $PSBoundParameters
 . (Join-Path $PSScriptRoot 'Common.ps1')
+$settings = Resolve-EuroTransitTrafficSettings -Profile $Profile -BoundParameters $boundParameters `
+    -DurationMinutes $DurationMinutes -DurationSeconds $DurationSeconds `
+    -RequestsPerMinute $RequestsPerMinute -TimeoutSeconds $TimeoutSeconds `
+    -MaxConcurrency $MaxConcurrency -MinimumRequestVolumePercentage $MinimumRequestVolumePercentage
 
 $destination = Resolve-EuroTransitDestination -Service payments -Target $Target `
     -BaseUrl $BaseUrl -PortForwardServiceName $PortForwardServiceName `
@@ -26,8 +35,10 @@ $destination = Resolve-EuroTransitDestination -Service payments -Target $Target 
 
 if ($Mode -eq 'Readiness') {
     Invoke-EuroTransitTraffic -Service payments -Destination $destination `
-        -Path '/actuator/health/readiness' -DurationMinutes $DurationMinutes `
-        -DurationSeconds $DurationSeconds -RequestsPerMinute $RequestsPerMinute `
+        -Path '/actuator/health/readiness' -DurationMinutes $settings.DurationMinutes `
+        -DurationSeconds $settings.DurationSeconds -RequestsPerMinute $settings.RequestsPerMinute `
+        -TimeoutSeconds $settings.TimeoutSeconds -MaxConcurrency $settings.MaxConcurrency `
+        -MinimumRequestVolumePercentage $settings.MinimumRequestVolumePercentage `
         -TrafficMode 'readiness-only' -ApplicationTraffic:$false `
         -OutputDirectory $OutputDirectory
     return
@@ -36,7 +47,7 @@ if ($Mode -eq 'Readiness') {
 if (-not $AcknowledgeSafeGatewayConfiguration) {
     throw 'Payments Business mode invokes the configured payment gateway. Pass -AcknowledgeSafeGatewayConfiguration only after confirming it is a safe local/test gateway.'
 }
-if ($RequestsPerMinute -gt 10) {
+if ($settings.RequestsPerMinute -gt 10) {
     throw 'Payments Business traffic is capped at 10 requests per minute.'
 }
 $token = Get-EuroTransitAccessToken -Service payments -AccessToken $AccessToken
@@ -44,10 +55,10 @@ if (-not $token) {
     throw 'Payments Business traffic requires -AccessToken, EUROTRANSIT_PAYMENTS_ACCESS_TOKEN, or the explicit EUROTRANSIT_ACCESS_TOKEN compatibility fallback.'
 }
 $headers = @{ Authorization = "Bearer $token" }
-$timing = Get-EuroTransitDeadline -DurationMinutes $DurationMinutes -DurationSeconds $DurationSeconds
+$timing = Get-EuroTransitDeadline -DurationMinutes $settings.DurationMinutes -DurationSeconds $settings.DurationSeconds
 $records = [System.Collections.Generic.List[object]]::new()
 $successfulOperations = [System.Collections.Generic.List[object]]::new()
-$baseDelayMs = 60000.0 / $RequestsPerMinute
+$baseDelayMs = 60000.0 / $settings.RequestsPerMinute
 $newAttempts = 0
 $authorized = 0
 $declined = 0
@@ -88,7 +99,7 @@ try {
             break
         }
 
-        $response = Invoke-EuroTransitHttpRequest -Uri $uri -Method POST -Headers $headers -Body $body
+        $response = Invoke-EuroTransitHttpRequest -Uri $uri -Method POST -Headers $headers -Body $body -TimeoutSeconds $settings.TimeoutSeconds
         $transactionId = if ($response.Json -and $response.Json.PSObject.Properties['transaction_id']) {
             [string]$response.Json.transaction_id
         }

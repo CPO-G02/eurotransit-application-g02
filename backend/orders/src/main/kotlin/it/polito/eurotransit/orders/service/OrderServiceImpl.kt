@@ -7,6 +7,7 @@ import it.polito.eurotransit.orders.repositories.OrderRepository
 import it.polito.eurotransit.orders.repositories.OutboxRepository
 import it.polito.eurotransit.orders.repositories.ProcessedRequestRepository
 import it.polito.eurotransit.orders.dto.OrderPlacedEvent
+import it.polito.eurotransit.orders.metrics.OrdersPromotionMetrics
 import kotlinx.coroutines.flow.toList
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -18,21 +19,37 @@ class OrderServiceImpl(
     private val orderRepo: OrderRepository,
     private val requestRepo: ProcessedRequestRepository,
     private val outboxRepo: OutboxRepository,
-    private val objectMapper: ObjectMapper
+    private val objectMapper: ObjectMapper,
+    private val promotionMetrics: OrdersPromotionMetrics
 ) : OrderService {
 
     @Transactional
     override suspend fun createOrder(req: OrderRequest): Order {
         val newOrderId = "ord-${UUID.randomUUID().toString().take(8)}"
 
-        if (requestRepo.insertIfAbsent(req.idempotencyKey, newOrderId) == 0) {
-            val existingReq = requestRepo.findById(req.idempotencyKey)
-                ?: throw IllegalStateException("idempotency key was claimed but no row was found")
-            return orderRepo.findById(existingReq.orderId) 
-                ?: throw IllegalStateException("order not found for idempotency key")
+        val claimed = try {
+            requestRepo.insertIfAbsent(req.idempotencyKey, newOrderId)
+        } catch (exception: Exception) {
+            promotionMetrics.persistenceFailure()
+            throw exception
         }
 
-        return saveNewOrder(req, newOrderId)
+        val order = if (claimed == 0) {
+            try {
+                val existingReq = requestRepo.findById(req.idempotencyKey)
+                    ?: throw IllegalStateException("idempotency key was claimed but no row was found")
+                orderRepo.findById(existingReq.orderId)
+                    ?: throw IllegalStateException("order not found for idempotency key")
+            } catch (exception: Exception) {
+                promotionMetrics.persistenceFailure()
+                throw exception
+            }
+        } else {
+            saveNewOrder(req, newOrderId)
+        }
+
+        promotionMetrics.requestAccepted()
+        return order
     }
 
     private suspend fun saveNewOrder(req: OrderRequest, newOrderId: String): Order {
@@ -48,20 +65,25 @@ class OrderServiceImpl(
             status = "PENDING"
         )
 
-        orderRepo.insertNew(
-            orderId = order.orderId,
-            userId = order.userId,
-            userEmail = order.userEmail,
-            trainId = order.trainId,
-            seatClass = order.seatClass,
-            quantity = order.quantity,
-            amount = order.amount,
-            currency = order.currency,
-            status = order.status,
-            transactionId = order.transactionId,
-            createdAt = order.createdAt,
-            confirmedAt = order.confirmedAt,
-        )
+        try {
+            orderRepo.insertNew(
+                orderId = order.orderId,
+                userId = order.userId,
+                userEmail = order.userEmail,
+                trainId = order.trainId,
+                seatClass = order.seatClass,
+                quantity = order.quantity,
+                amount = order.amount,
+                currency = order.currency,
+                status = order.status,
+                transactionId = order.transactionId,
+                createdAt = order.createdAt,
+                confirmedAt = order.confirmedAt,
+            )
+        } catch (exception: Exception) {
+            promotionMetrics.persistenceFailure()
+            throw exception
+        }
             
         val event = OrderPlacedEvent(
             eventId = "evt-${UUID.randomUUID()}",
@@ -72,13 +94,18 @@ class OrderServiceImpl(
             quantity = order.quantity
         )
         
-        val payloadStr = objectMapper.writeValueAsString(event)
-
-        outboxRepo.insert(
-            eventId = event.eventId,
-            topic = "eurotransit.order-placed",
-            payload = payloadStr,
-        )
+        try {
+            val payloadStr = objectMapper.writeValueAsString(event)
+            outboxRepo.insert(
+                eventId = event.eventId,
+                topic = "eurotransit.order-placed",
+                payload = payloadStr,
+            )
+            promotionMetrics.outboxCreated()
+        } catch (exception: Exception) {
+            promotionMetrics.outboxCreationFailure()
+            throw exception
+        }
 
         return order
     }

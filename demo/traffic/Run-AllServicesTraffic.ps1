@@ -1,7 +1,11 @@
 [CmdletBinding()]
 param(
+    [ValidateSet('Smoke', 'Rollout')][string]$Profile = 'Smoke',
     [int]$DurationMinutes = 20,
     [int]$DurationSeconds = 0,
+    [ValidateRange(1, 300)][int]$TimeoutSeconds,
+    [ValidateRange(1, 50)][int]$MaxConcurrency,
+    [ValidateRange(1, 100)][int]$MinimumRequestVolumePercentage,
     [string]$AccessToken,
     [string]$OrdersAccessToken,
     [string]$InventoryAccessToken,
@@ -56,7 +60,12 @@ param(
     [string]$OutputDirectory = (Join-Path $PSScriptRoot 'results')
 )
 
+$boundParameters = @{} + $PSBoundParameters
 . (Join-Path $PSScriptRoot 'Common.ps1')
+$settings = Resolve-EuroTransitTrafficSettings -Profile $Profile -BoundParameters $boundParameters `
+    -DurationMinutes $DurationMinutes -DurationSeconds $DurationSeconds `
+    -RequestsPerMinute 60 -TimeoutSeconds $TimeoutSeconds `
+    -MaxConcurrency $MaxConcurrency -MinimumRequestVolumePercentage $MinimumRequestVolumePercentage
 
 $moneyPathEnabled = $TrafficProfile -in @('MoneyPath', 'CombinedExplicit')
 $perServiceBusinessEnabled = $TrafficProfile -in @('PerServiceBusiness', 'CombinedExplicit')
@@ -92,7 +101,7 @@ $scripts.Add(@{
         ExpectedPublicScheme = $ExpectedPublicScheme
         ExpectedPublicPort = $ExpectedPublicPort
         KubernetesNamespace = $KubernetesNamespace
-        RequestsPerMinute = $FrontendRequestsPerMinute
+        RequestsPerMinute = if ($boundParameters.ContainsKey('FrontendRequestsPerMinute')) { $FrontendRequestsPerMinute } else { $settings.RequestsPerMinute }
     }
 })
 $scripts.Add(@{
@@ -106,7 +115,7 @@ $scripts.Add(@{
         ExpectedPublicScheme = $ExpectedPublicScheme
         ExpectedPublicPort = $ExpectedPublicPort
         KubernetesNamespace = $KubernetesNamespace
-        RequestsPerMinute = $CatalogRequestsPerMinute
+        RequestsPerMinute = if ($boundParameters.ContainsKey('CatalogRequestsPerMinute')) { $CatalogRequestsPerMinute } else { $settings.RequestsPerMinute }
     }
 })
 $scripts.Add(@{
@@ -130,7 +139,9 @@ $scripts.Add(@{
         TrainId = $OrdersTrainId
         SeatClass = $OrdersSeatClass
         ExpectedOutcome = $OrdersExpectedOutcome
-        RequestsPerMinute = if ($moneyPathEnabled) { [Math]::Min(10, $OrdersRequestsPerMinute) } else { $OrdersRequestsPerMinute }
+        RequestsPerMinute = if ($moneyPathEnabled) {
+            [Math]::Min(10, $(if ($boundParameters.ContainsKey('OrdersRequestsPerMinute')) { $OrdersRequestsPerMinute } else { $settings.RequestsPerMinute }))
+        } elseif ($boundParameters.ContainsKey('OrdersRequestsPerMinute')) { $OrdersRequestsPerMinute } else { $settings.RequestsPerMinute }
     }
 })
 $scripts.Add(@{
@@ -150,7 +161,9 @@ $scripts.Add(@{
         CatalogTarget = $CatalogTarget
         CatalogBaseUrl = $CatalogBaseUrl
         CatalogPortForwardServiceName = $CatalogPortForwardServiceName
-        RequestsPerMinute = if ($perServiceBusinessEnabled) { [Math]::Min(10, $InventoryRequestsPerMinute) } else { $InventoryRequestsPerMinute }
+        RequestsPerMinute = if ($perServiceBusinessEnabled) {
+            [Math]::Min(10, $(if ($boundParameters.ContainsKey('InventoryRequestsPerMinute')) { $InventoryRequestsPerMinute } else { $settings.RequestsPerMinute }))
+        } elseif ($boundParameters.ContainsKey('InventoryRequestsPerMinute')) { $InventoryRequestsPerMinute } else { $settings.RequestsPerMinute }
     }
 })
 $scripts.Add(@{
@@ -165,7 +178,9 @@ $scripts.Add(@{
         AccessToken = $paymentsToken
         # This is deliberately tied only to the explicit orchestrator switch.
         AcknowledgeSafeGatewayConfiguration = [bool]$AcknowledgeSafePaymentGateway
-        RequestsPerMinute = if ($perServiceBusinessEnabled) { [Math]::Min(10, $PaymentsRequestsPerMinute) } else { $PaymentsRequestsPerMinute }
+        RequestsPerMinute = if ($perServiceBusinessEnabled) {
+            [Math]::Min(10, $(if ($boundParameters.ContainsKey('PaymentsRequestsPerMinute')) { $PaymentsRequestsPerMinute } else { $settings.RequestsPerMinute }))
+        } elseif ($boundParameters.ContainsKey('PaymentsRequestsPerMinute')) { $PaymentsRequestsPerMinute } else { $settings.RequestsPerMinute }
     }
 })
 if ($IncludeGatewaySimulator) {
@@ -192,8 +207,12 @@ $workerFailed = $false
 try {
     foreach ($item in $scripts) {
         $parameters = @{
-            DurationMinutes = $DurationMinutes
-            DurationSeconds = $DurationSeconds
+            Profile = $Profile
+            DurationMinutes = $settings.DurationMinutes
+            DurationSeconds = $settings.DurationSeconds
+            TimeoutSeconds = $settings.TimeoutSeconds
+            MaxConcurrency = $settings.MaxConcurrency
+            MinimumRequestVolumePercentage = $settings.MinimumRequestVolumePercentage
             OutputDirectory = $OutputDirectory
         }
         foreach ($entry in $item.Args.GetEnumerator()) {

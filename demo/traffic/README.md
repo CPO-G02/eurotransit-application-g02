@@ -9,6 +9,31 @@ Every worker emits one structured `EuroTransit.TrafficSummary` object and writes
 request-level CSV plus a JSON summary under `demo/traffic/results/`. Tokens are
 used only as HTTP headers and are never included in either output format.
 
+## Load profiles
+
+Every service entrypoint accepts `-Profile Smoke|Rollout`. Explicit duration,
+RPM, timeout, concurrency, and minimum-volume parameters override the profile.
+
+| Profile | Duration | RPM | Timeout | Max concurrency | Minimum generated volume |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `Smoke` | 60 seconds | 10 | 3 seconds | 1 | 80% |
+| `Rollout` | 25 minutes | 120 | 5 seconds | 5 | 90% |
+
+```powershell
+.\demo\traffic\Invoke-CatalogTraffic.ps1 `
+  -Target Public `
+  -Profile Rollout
+```
+
+The generator reuses one asynchronous `HttpClient`, schedules independently of
+response completion, and never exceeds `MaxConcurrency`. Request and compact
+summary lines use the host stream; the typed `EuroTransit.TrafficSummary`
+remains the only success-pipeline object.
+
+Summaries include `expected_requests`, `minimum_required_requests`,
+`actual_requests`, and `request_volume_satisfied`. Missing the minimum generated
+volume fails the run even when every completed request succeeded.
+
 ## Access tokens
 
 Orders, Inventory, and Payments may require different JWT audiences. Use
