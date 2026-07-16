@@ -27,6 +27,11 @@ spring:
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    # Propagates the trace context from the order-failed event's producer
+    # (Orders) into this consumer's compensation span - no producer side to
+    # enable here, Inventory never produces (see CLAUDE.md).
+    listener:
+      observation-enabled: true
 
 app:
   security:
@@ -52,3 +57,9 @@ management:
       probes:
         enabled: true
       show-details: never
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
