@@ -6,8 +6,10 @@ import org.springframework.stereotype.Component
 
 @Component
 class OrdersPromotionMetrics(registry: MeterRegistry) {
-    private val requestsAccepted: Counter =
-        registry.counter("eurotransit.orders.requests.accepted")
+    private val newRequestsAccepted: Counter =
+        registry.counter("eurotransit.orders.requests.accepted.new")
+    private val replayedRequestsAccepted: Counter =
+        registry.counter("eurotransit.orders.requests.accepted.replayed")
     private val persistenceFailures: Counter =
         registry.counter("eurotransit.orders.persistence.failures")
     private val outboxCreated: Counter =
@@ -17,7 +19,8 @@ class OrdersPromotionMetrics(registry: MeterRegistry) {
     private val outboxPublishFailures: Counter =
         registry.counter("eurotransit.orders.outbox.publish.failures")
 
-    fun requestAccepted() = requestsAccepted.increment()
+    fun newRequestAccepted() = newRequestsAccepted.increment()
+    fun replayedRequestAccepted() = replayedRequestsAccepted.increment()
     fun persistenceFailure() = persistenceFailures.increment()
     fun outboxCreated() = outboxCreated.increment()
     fun outboxCreationFailure() = outboxCreationFailures.increment()

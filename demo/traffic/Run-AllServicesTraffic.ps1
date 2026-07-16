@@ -67,7 +67,9 @@ $settings = Resolve-EuroTransitTrafficSettings -Profile $Profile -BoundParameter
     -RequestsPerMinute 60 -TimeoutSeconds $TimeoutSeconds `
     -MaxConcurrency $MaxConcurrency -MinimumRequestVolumePercentage $MinimumRequestVolumePercentage
 
-$moneyPathEnabled = $TrafficProfile -in @('MoneyPath', 'CombinedExplicit')
+$ordersRolloutEnabled = $Profile -eq 'Rollout' -and -not $boundParameters.ContainsKey('TrafficProfile')
+$effectiveTrafficProfile = if ($ordersRolloutEnabled) { 'Rollout' } else { $TrafficProfile }
+$moneyPathEnabled = $ordersRolloutEnabled -or $TrafficProfile -in @('MoneyPath', 'CombinedExplicit')
 $perServiceBusinessEnabled = $TrafficProfile -in @('PerServiceBusiness', 'CombinedExplicit')
 
 if ($moneyPathEnabled -and -not $AcknowledgeMoneyPathSideEffects) {
@@ -83,7 +85,7 @@ if (($moneyPathEnabled -or $perServiceBusinessEnabled) -and -not $AcknowledgeSaf
     throw 'Business traffic may invoke Payments. Pass -AcknowledgeSafePaymentGateway only after manually confirming that Payments uses a local/test gateway rather than real Stripe.'
 }
 
-$ordersMode = if ($moneyPathEnabled) { 'MoneyPath' } else { 'ReadOnly' }
+$ordersMode = if ($ordersRolloutEnabled) { 'Rollout' } elseif ($moneyPathEnabled) { 'MoneyPath' } else { 'ReadOnly' }
 $internalMode = if ($perServiceBusinessEnabled) { 'Business' } else { 'Readiness' }
 $ordersToken = if ($OrdersAccessToken) { $OrdersAccessToken } else { $AccessToken }
 $inventoryToken = if ($InventoryAccessToken) { $InventoryAccessToken } else { $AccessToken }
@@ -250,13 +252,13 @@ try {
     $aggregate = [pscustomobject]@{
         service = 'all-services'
         target = 'mixed'
-        traffic_profile = $TrafficProfile
-        traffic_mode = $TrafficProfile
+        traffic_profile = $effectiveTrafficProfile
+        traffic_mode = $effectiveTrafficProfile
         application_traffic = @($summaries | Where-Object application_traffic).Count -gt 0
         business_traffic = $moneyPathEnabled -or $perServiceBusinessEnabled
         money_path_enabled = $moneyPathEnabled
         direct_downstream_business_enabled = $perServiceBusinessEnabled
-        combined_side_effects = $TrafficProfile -eq 'CombinedExplicit'
+        combined_side_effects = $effectiveTrafficProfile -eq 'CombinedExplicit'
         gateway_simulator_included = [bool]$IncludeGatewaySimulator
         worker_count = $scripts.Count
         summary_count = $summaries.Count
@@ -269,7 +271,7 @@ try {
     $aggregate
 
     if (-not $passed) {
-        throw "One or more traffic workers failed. profile=$TrafficProfile, summaries=$($summaries.Count)/$($scripts.Count), errors=$($jobErrors.Count), unexpectedOutput=$($unexpectedOutput.Count)."
+        throw "One or more traffic workers failed. profile=$effectiveTrafficProfile, summaries=$($summaries.Count)/$($scripts.Count), errors=$($jobErrors.Count), unexpectedOutput=$($unexpectedOutput.Count)."
     }
 }
 finally {

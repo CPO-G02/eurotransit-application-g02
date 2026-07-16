@@ -295,6 +295,16 @@ try {
     Assert-True ($ordersConfirmed.confirmed -eq 1) 'Orders did not reach CONFIRMED.'
     Assert-True ($ordersConfirmed.duplicate_attempts -eq 1 -and $ordersConfirmed.idempotency_mismatches -eq 0) 'Orders duplicate replay was not stable.'
 
+    $ordersRollout = & (Join-Path $trafficDirectory 'Invoke-OrdersTraffic.ps1') `
+        -Target Canary -BaseUrl $baseUrl -PortForwardServiceName eurotransit-orders-canary `
+        -CatalogTarget Stable -CatalogBaseUrl $baseUrl `
+        -CatalogPortForwardServiceName eurotransit-catalog -Profile Rollout `
+        -AcknowledgeMoneyPathSideEffects -AcknowledgeSafePaymentGateway `
+        -DurationSeconds 2 -OutputDirectory $outputDirectory
+    Assert-True ($ordersRollout.passed -and $ordersRollout.traffic_mode -eq 'rollout-write') 'Orders Rollout profile did not generate candidate writes.'
+    Assert-True ($ordersRollout.new_operations -eq 1 -and $ordersRollout.duplicate_attempts -eq 0) 'Orders Rollout traffic must count one fresh order and no replay.'
+    Assert-True ($ordersRollout.request_volume_satisfied -and $ordersRollout.expected_new_operations -eq 1) 'Orders Rollout generated-volume gate failed.'
+
     $ordersInsufficient = & (Join-Path $trafficDirectory 'Invoke-OrdersTraffic.ps1') `
         -Target Stable -BaseUrl $baseUrl -PortForwardServiceName eurotransit-orders `
         -CatalogTarget Stable -CatalogBaseUrl $baseUrl `
@@ -371,6 +381,16 @@ try {
     $readOnly = & $orchestratorPath @readOnlyParameters
     Assert-True ($readOnly.PSObject.TypeNames -contains 'EuroTransit.OrchestratorSummary') 'ReadOnly orchestrator output was not structured.'
     Assert-True ($readOnly.passed -and $readOnly.traffic_profile -eq 'ReadOnly') 'ReadOnly orchestrator smoke run failed.'
+
+    $rolloutParameters = New-OrchestratorParameters -BaseUrl $baseUrl -OutputDirectory $outputDirectory
+    $rolloutParameters.Profile = 'Rollout'
+    $rolloutParameters.DurationSeconds = 2
+    $rolloutParameters.AcknowledgeMoneyPathSideEffects = $true
+    $rolloutParameters.AcknowledgeSafePaymentGateway = $true
+    $rollout = & $orchestratorPath @rolloutParameters
+    $rolloutOrders = @($rollout.services | Where-Object service -eq 'orders')[0]
+    Assert-True ($rollout.passed -and $rollout.traffic_profile -eq 'Rollout') 'Default orchestrator Rollout profile failed.'
+    Assert-True ($rolloutOrders.traffic_mode -eq 'rollout-write' -and $rolloutOrders.new_operations -eq 1) 'Orchestrator Rollout did not feed Orders candidate writes.'
 
     Assert-Throws {
         $unsafeMoneyPath = New-OrchestratorParameters -BaseUrl $baseUrl -OutputDirectory $outputDirectory
