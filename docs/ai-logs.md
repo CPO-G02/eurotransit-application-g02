@@ -1101,3 +1101,17 @@ Final Retry/CircuitBreaker interaction check for Inventory showed that one logic
 **Confidence**
 
 High — full Orders tests and `check` passed after Docker-backed persistence, mapper, rollback, outbox JSONB, and client resilience coverage.
+
+# 2026-07-16 - Circuit-breaker live-check k6 scripts
+
+Added two k6 scripts for the remaining live resilience checks:
+
+- `tools/k6/orders-payments-circuit-breaker.js` generates authenticated
+  `POST /api/v1/orders` traffic while the Orders -> Payments chaos experiment is
+  active.
+- `tools/k6/payments-gateway-circuit-breaker.js` generates authenticated
+  `POST /api/v1/payments/authorize` traffic, intended to run through a local
+  port-forward to Payments because Payments is not exposed by the public Ingress.
+
+Both scripts require a bearer token supplied outside Git. They intentionally do
+not fetch, embed, or store credentials.
