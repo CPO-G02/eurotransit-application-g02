@@ -1119,3 +1119,40 @@ orchestration, and job cleanup.
 payment gateway. They remain explicit, low-rate, capped, and documented.
 
 ---
+
+## 2026-07-16 — Complete second review of demo traffic PR
+
+**Agent:** OpenAI Codex
+
+**Task:** Correct only the remaining findings on PR #35 without modifying
+microservice implementation.
+
+**Files modified:**
+
+- `demo/traffic/Common.ps1`
+- `demo/traffic/Invoke-*.ps1`
+- `demo/traffic/Run-AllServicesTraffic.ps1`
+- `demo/traffic/README.md`
+- `demo/traffic/tests/*`
+- `docs/ai-logs.md`
+
+**Summary:** Added service-specific JWT inputs, strict public and Kubernetes DNS
+validation, isolated traffic profiles, an independent safe-gateway
+acknowledgement, controlled Orders failure scenarios, honest money-path outcome
+classification, contract guards against the real DTO/controller files, an
+optional read-only live smoke, and tested job cleanup.
+
+**Verification:** All PowerShell files parsed, the Python fixture compiled, and
+the smoke suite passed strict targets, missing/distinct tokens, HTTP error
+handling, confirmed/business-failure/timeout money paths, duplicate identity,
+gateway modes, ReadOnly/MoneyPath/PerServiceBusiness profiles, and cleanup.
+
+**Risks:** The mock does not prove deployed JWT audiences, Kafka progression,
+real downstream calls, gateway configuration, or end-to-end idempotency.
+Ctrl+C/SIGINT was not automated cross-platform; only the cleanup function and
+normal completion were tested.
+
+**Confidence:** High for local script contracts and mock behavior; medium for
+the optional live behavior until an operator runs the documented checks.
+
+---
