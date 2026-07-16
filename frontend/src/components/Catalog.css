@@ -49,7 +49,7 @@
   font-family: var(--font-display);
   font-size: 4.5rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
   margin: 0 0 1.4rem 0;
   letter-spacing: -2.5px;
   line-height: 0.98;
@@ -125,7 +125,7 @@
 .input-group select {
   background: var(--bg-base);
   border: 1px solid var(--border-default);
-  color: #ffffff;
+  color: var(--text-primary);
   padding: 0.7rem 0.9rem;
   border-radius: var(--radius-sm);
   font-size: 0.9rem;
@@ -145,7 +145,10 @@
 }
 
 .input-group input[type="date"] {
-  color-scheme: dark;
+  color-scheme: light;
+  border-radius: 999px;
+  text-align: center;
+  font-weight: 600;
 }
 
 .btn-swap {
@@ -187,7 +190,7 @@
   background: var(--bg-surface-raised);
   border: 1px solid var(--border-default);
   border-radius: 6px;
-  color: #ffffff;
+  color: var(--text-primary);
   font-size: 1rem;
   line-height: 1;
   cursor: pointer;
@@ -207,7 +210,7 @@
 .stepper span {
   font-family: var(--font-mono);
   font-weight: 600;
-  color: #ffffff;
+  color: var(--text-primary);
   font-size: 0.95rem;
 }
 
@@ -234,8 +237,88 @@
   background: var(--accent-hover);
 }
 
+.day-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.75rem 0 0.25rem 0;
+}
+
+.day-tab {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 68px;
+  padding: 0.55rem 0.75rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.day-tab:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.day-tab.is-today {
+  border-color: var(--accent-border);
+  background: var(--accent-dim);
+}
+
+.day-tab.is-past {
+  background: var(--bg-base);
+  border-color: var(--border-subtle);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.day-tab.is-past:hover {
+  border-color: var(--border-subtle);
+  color: var(--text-tertiary);
+}
+
+.day-tab.is-past .day-tab-bottom {
+  color: var(--text-tertiary);
+}
+
+.day-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  box-shadow: var(--shadow-elevated);
+}
+
+.day-tab-top {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.day-tab-bottom {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-tertiary);
+}
+
+.day-tab.is-today .day-tab-bottom {
+  color: var(--accent);
+}
+
+.day-tab.active .day-tab-bottom {
+  color: rgba(255, 255, 255, 0.85);
+}
+
 .results-header {
-  margin: 3.5rem 0 1.5rem 0;
+  margin: 2rem 0 1.5rem 0;
   border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 1rem;
   display: flex;
@@ -258,7 +341,7 @@
   font-family: var(--font-display);
   font-size: 1.9rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
   margin: 0;
   letter-spacing: -0.8px;
   text-transform: uppercase;
@@ -294,6 +377,21 @@
   border-color: var(--border-hover);
 }
 
+.train-row.departed {
+  opacity: 0.55;
+  background: var(--bg-base);
+}
+
+.train-row.departed:hover {
+  border-color: var(--border-subtle);
+}
+
+.train-row.departed .row-price,
+.train-row.departed .row-station,
+.train-row.departed .row-time-value {
+  color: var(--text-tertiary);
+}
+
 .row-time {
   display: flex;
   flex-direction: column;
@@ -306,7 +404,7 @@
   font-family: var(--font-mono);
   font-size: 1.3rem;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .row-time-date {
@@ -333,7 +431,7 @@
   font-family: var(--font-display);
   font-size: 1.25rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .row-arrow {
@@ -366,6 +464,11 @@
   text-transform: uppercase;
 }
 
+.row-status-pill.departed {
+  color: var(--text-tertiary);
+  background: var(--bg-surface-raised);
+}
+
 .row-price-block {
   display: flex;
   flex-direction: column;
@@ -390,7 +493,7 @@
   margin-top: 0.4rem;
   padding: 0.55rem 1.1rem;
   background: var(--bg-surface-raised);
-  color: #ffffff;
+  color: var(--text-primary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   font-weight: 600;
@@ -404,6 +507,20 @@
 .btn-book-row:hover {
   background: var(--accent);
   border-color: var(--accent);
+  color: #ffffff;
+}
+
+.btn-book-row:disabled {
+  background: var(--bg-surface-raised);
+  border-color: var(--border-subtle);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+.btn-book-row:disabled:hover {
+  background: var(--bg-surface-raised);
+  border-color: var(--border-subtle);
+  color: var(--text-tertiary);
 }
 
 .loading-state {
@@ -411,6 +528,36 @@
   padding: 4rem;
   color: var(--text-tertiary);
   font-size: 0.95rem;
+}
+
+.empty-results {
+  text-align: center;
+  padding: 3rem;
+  color: var(--text-tertiary);
+  font-size: 0.9rem;
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.btn-load-more {
+  align-self: center;
+  margin-top: 1.5rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  padding: 0.7rem 1.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-load-more:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
 }
 
 @media (max-width: 860px) {
