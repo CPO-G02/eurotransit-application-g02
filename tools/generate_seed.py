@@ -38,9 +38,14 @@ CURRENCY = "EUR"
 # business fare = standard * this factor (then per-run jitter).
 BUSINESS_FACTOR = 1.8
 
-# Inventory seed size: only the first N days of runs are made reservable, to
-# keep the authoritative seed modest (correctness, not volume, is the point).
-INVENTORY_DAYS = 1
+# Inventory seed size: how many of Catalog's DAYS of runs are made reservable.
+# Was 1 (only START_DATE) - fine when the demo was actually run near
+# START_DATE, but the frontend blocks selecting past departure dates, so once
+# "today" moves past START_DATE, every train a real user can actually pick is
+# outside Inventory's seed and always fails "insufficient seats". Matching the
+# full Catalog window removes that expiry entirely. Confirmed live 2026-07-16:
+# START_DATE (07-10) had already passed, so no selectable train was bookable.
+INVENTORY_DAYS = DAYS
 
 # The one run whose seat_class is pinned to a known-low authoritative count, so
 # the seat concurrency test ("10 concurrent requests / N seats") has a
