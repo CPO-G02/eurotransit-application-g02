@@ -51,8 +51,10 @@ approval.
   matches the contract's schema.
 
 The `data.sql` seed is generated (shares Catalog's generator so train_ids match:
-`tools/generate_seed.py --target=inventory`). One run/class is pinned to
-a low count for the seat concurrency test.
+`tools/generate_seed.py --target=inventory`). One run/class is pinned to a low
+count as a deterministic **demo** sell-out target. No test reads it:
+`InventoryReserveTest` wipes `seats` in `@BeforeEach` and builds its own rows, so
+"10 concurrent reserves on 5 seats" reserves against `TR-C`, not the seed.
 
 Note: the RESERVED→RELEASED guard alone already prevents a double release, so
 `processed_events` is contract compliance + defence in depth, not a bug fix.

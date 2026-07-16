@@ -48,12 +48,18 @@ BUSINESS_FACTOR = 1.8
 INVENTORY_DAYS = DAYS
 
 # The one run whose seat_class is pinned to a known-low authoritative count, so
-# the seat concurrency test ("10 concurrent requests / N seats") has a
-# deterministic target. Resolved to a REAL catalog run (same train_id) at emit
-# time — the earliest run of this directional route on START_DATE.
-CONCURRENCY_TEST_ROUTE = ("Milano", "Roma")
-CONCURRENCY_TEST_SEAT_CLASS = "business"
-CONCURRENCY_TEST_AVAILABLE = 5
+# a manual sell-out demo has a deterministic target to aim at. Resolved to a REAL
+# catalog run (same train_id) at emit time — the earliest run of this directional
+# route on START_DATE.
+#
+# Nothing automated depends on this. InventoryReserveTest wipes `seats` in
+# @BeforeEach and builds its own rows, so the "10 concurrent reserves on 5 seats"
+# test does NOT reserve against this row — it was named for it, which is why the
+# constants used to say CONCURRENCY_TEST_*. Changing the route or the count moves
+# the demo target and cannot break a test.
+DEMO_SELLOUT_ROUTE = ("Milano", "Roma")
+DEMO_SELLOUT_SEAT_CLASS = "business"
+DEMO_SELLOUT_AVAILABLE = 5
 
 # City name -> 3-letter code used inside train_id.
 CITIES = {
@@ -194,10 +200,10 @@ def build_runs():
     return products, seat_classes
 
 
-def concurrency_test_train_id(products):
+def demo_sellout_train_id(products):
     """Resolve the pinned low-availability run to a real generated train_id:
-    the earliest run of CONCURRENCY_TEST_ROUTE on START_DATE."""
-    origin, destination = CONCURRENCY_TEST_ROUTE
+    the earliest run of DEMO_SELLOUT_ROUTE on START_DATE."""
+    origin, destination = DEMO_SELLOUT_ROUTE
     day0 = START_DATE.strftime("%Y%m%d")
     candidates = [
         t for (t, o, d, _dep) in products
@@ -214,7 +220,7 @@ def build_seats(products, seat_classes):
         (START_DATE + timedelta(days=day)).strftime("%Y%m%d")
         for day in range(INVENTORY_DAYS)
     }
-    pinned_train_id = concurrency_test_train_id(products)
+    pinned_train_id = demo_sellout_train_id(products)
 
     seats = []
     for (train_id, seat_class, _price, _currency, available) in seat_classes:
@@ -222,8 +228,8 @@ def build_seats(products, seat_classes):
         run_date = train_id.split("-")[-2]
         if run_date not in horizon:
             continue
-        if train_id == pinned_train_id and seat_class == CONCURRENCY_TEST_SEAT_CLASS:
-            available = CONCURRENCY_TEST_AVAILABLE
+        if train_id == pinned_train_id and seat_class == DEMO_SELLOUT_SEAT_CLASS:
+            available = DEMO_SELLOUT_AVAILABLE
         seats.append((train_id, seat_class, available))
     return seats, pinned_train_id
 
@@ -241,10 +247,8 @@ HEADER = """\
 --
 -- A handful of runs across different routes are seeded with single-digit
 -- availability to make sold-out / low-availability demo scenarios plausible.
--- This does NOT drive the seat concurrency test (10 concurrent requests / N
--- seats): that number is defined by the inventory-db seed, added in the
--- \"Implement Inventory POST /reserve\" task. If the two ever diverge,
--- inventory-db wins.
+-- These figures drive nothing but the UI: the reservable counts live in the
+-- inventory-db seed, and if the two ever diverge, inventory-db wins.
 --
 -- Departure window: {start} .. {end} (14 days). Dates are frozen at generation
 -- time; bump START_DATE in the generator and regenerate to refresh the window.\
@@ -262,9 +266,10 @@ HEADER_INVENTORY = """\
 -- Catalog runs (same generator), so every reservable train also appears in the
 -- catalog listing.
 --
--- Concurrency test target: {pinned} / {seat_class} is pinned to {available}
--- seats — this is the row the \"10 concurrent requests / {available} seats\"
--- test reserves against.\
+-- Demo sell-out target: {pinned} / {seat_class} is pinned to {available} seats,
+-- so a live demo has a deterministic route to sell out. Nothing automated reads
+-- this row: InventoryReserveTest wipes `seats` and builds its own, so the
+-- \"10 concurrent reserves on {available} seats\" test does not touch it.\
 """
 
 
@@ -275,8 +280,8 @@ def sql_str(value):
 def emit_inventory(seats, pinned_train_id):
     header = HEADER_INVENTORY.format(
         pinned=pinned_train_id,
-        seat_class=CONCURRENCY_TEST_SEAT_CLASS,
-        available=CONCURRENCY_TEST_AVAILABLE,
+        seat_class=DEMO_SELLOUT_SEAT_CLASS,
+        available=DEMO_SELLOUT_AVAILABLE,
     )
     out = [header, ""]
     out.append("INSERT INTO seats (train_id, seat_class, available) VALUES")
