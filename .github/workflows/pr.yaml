@@ -74,3 +74,65 @@ jobs:
           npm ci
           npm run lint
           npm run build
+
+  demo-traffic-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: parse PowerShell traffic scripts
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem demo/traffic -Recurse -Filter '*.ps1')
+          if ($files.Count -eq 0) {
+            throw 'No PowerShell demo traffic scripts were found.'
+          }
+          $failed = $false
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $file.FullName,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $failed = $true
+              Write-Host "::error file=$($file.FullName)::PowerShell parse failure"
+              $errors | Format-List | Out-Host
+            }
+          }
+          if ($failed) {
+            exit 1
+          }
+
+      - name: enforce scope and scan scripts for committed secrets
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem demo/traffic -Recurse -Filter '*.ps1')
+          if ($files | Select-String -Pattern 'notifications' -CaseSensitive:$false) {
+            throw 'Notifications must not be included in demo traffic scripts.'
+          }
+          $secretPatterns = @(
+            '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----',
+            '\bAKIA[0-9A-Z]{16}\b',
+            '\bgh[pousr]_[A-Za-z0-9_]{20,}\b',
+            '\bsk_(live|test)_[A-Za-z0-9]{16,}\b',
+            '(?i)Bearer\s+(?!\$)[A-Za-z0-9._~+/=-]{16,}',
+            '(?i)(client[_-]?secret|password)\s*[:=]\s*[''"][^$''"]{8,}[''"]'
+          )
+          foreach ($pattern in $secretPatterns) {
+            $matches = $files | Select-String -Pattern $pattern
+            if ($matches) {
+              $matches | Format-Table Path, LineNumber, Line | Out-Host
+              throw "Potential committed secret matched pattern: $pattern"
+            }
+          }
+
+      - name: run local traffic smoke tests
+        shell: pwsh
+        run: ./demo/traffic/tests/SmokeTests.ps1
