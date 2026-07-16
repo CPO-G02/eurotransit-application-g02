@@ -1079,3 +1079,38 @@ inspected React branch. Medium until the first GitHub-hosted workflow run passes
 
 No image was pushed, no configuration repository was updated remotely, and no
 cluster-changing command was run.
+### 2026-07-16 14:00
+
+**Agent**
+
+OpenAI Codex
+
+**Task**
+
+Create safe PowerShell demo traffic generators.
+
+**Files Modified**
+
+- `demo/traffic/*.ps1`
+- `demo/traffic/README.md`
+- `.github/workflows/pr.yaml`
+
+**Summary**
+
+Added separate traffic scripts for Frontend, Catalog, Orders, Inventory,
+Payments, and Payment Gateway Simulator plus a parallel orchestrator. Results
+are persisted as CSV/JSON. Notifications is excluded.
+
+**Potential Risks**
+
+Internal services require operator-managed port-forwards. Inventory and Payments
+default to readiness traffic; real idempotent POST traffic requires explicit
+opt-in and authentication.
+
+**Confidence**
+
+High
+
+**Notes**
+
+No credentials are stored or printed.

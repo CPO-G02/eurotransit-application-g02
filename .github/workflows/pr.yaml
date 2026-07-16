@@ -74,3 +74,26 @@ jobs:
           npm ci
           npm run lint
           npm run build
+
+  demo-traffic-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: parse PowerShell traffic scripts
+        shell: pwsh
+        run: |
+          $errors = @()
+          Get-ChildItem demo/traffic/*.ps1 | ForEach-Object {
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName,
+              [ref]$null,
+              [ref]$errors
+            ) | Out-Null
+          }
+          if ($errors.Count -gt 0) {
+            $errors | Format-List
+            exit 1
+          }
+          if (Get-ChildItem demo/traffic/*.ps1 | Select-String -Pattern 'notifications' -CaseSensitive:$false) {
+            throw 'Notifications must not be included in demo traffic scripts.'
+          }
