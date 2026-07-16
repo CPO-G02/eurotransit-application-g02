@@ -5,10 +5,24 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# Contract fixture aligned with:
+# - backend/orders/src/main/kotlin/it/polito/eurotransit/orders/dto/OrderAPIDTOs.kt
+# - backend/orders/src/main/kotlin/it/polito/eurotransit/orders/controllers/OrderController.kt
+# - backend/catalog/src/main/kotlin/it/polito/eurotransit/catalog/dto/CatalogDtos.kt
+# - backend/inventory/src/main/kotlin/it/polito/eurotransit/inventory/dto/InventoryDtos.kt
+# - backend/inventory/src/main/kotlin/it/polito/eurotransit/inventory/controllers/InventoryController.kt
+# - backend/payments/src/main/kotlin/it/polito/eurotransit/payments/dto/PaymentsDtos.kt
+# - backend/payments/src/main/kotlin/it/polito/eurotransit/payments/controllers/PaymentsController.kt
+# - backend/payment-gateway-sim/src/main/kotlin/it/polito/eurotransit/paymentgateway/controllers/GatewayController.kt
 
 ORDERS = {}
 RESERVATIONS = {}
 PAYMENTS = {}
+EXPECTED_TOKENS = {
+    "orders": "orders-token",
+    "inventory": "inventory-token",
+    "payments": "payments-token",
+}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -31,13 +45,16 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         return json.loads(self.rfile.read(length) or b"{}")
 
-    def _authorized(self):
+    def _authorized(self, service):
         value = self.headers.get("Authorization", "")
         if not value.startswith("Bearer "):
             self._json(401, {"error": "unauthorized"})
             return False
         if value == "Bearer forbidden":
             self._json(403, {"error": "forbidden"})
+            return False
+        if value != f"Bearer {EXPECTED_TOKENS[service]}":
+            self._json(401, {"error": "wrong_audience"})
             return False
         return True
 
@@ -69,17 +86,61 @@ class Handler(BaseHTTPRequestHandler):
                                     "available": 50,
                                 }
                             ],
+                        },
+                        {
+                            "train_id": "FULL",
+                            "origin": "Torino",
+                            "destination": "Milano",
+                            "departure": "2026-07-16T10:00:00Z",
+                            "seat_classes": [
+                                {
+                                    "class": "standard",
+                                    "price": 12.50,
+                                    "currency": "EUR",
+                                    # Deliberately stale/nominal. The Orders test
+                                    # selects it explicitly and Inventory decides.
+                                    "available": 0,
+                                }
+                            ],
+                        },
+                        {
+                            "train_id": "DECLINE",
+                            "origin": "Torino",
+                            "destination": "Milano",
+                            "departure": "2026-07-16T10:00:00Z",
+                            "seat_classes": [
+                                {
+                                    "class": "standard",
+                                    "price": 600.00,
+                                    "currency": "EUR",
+                                    "available": 0,
+                                }
+                            ],
+                        },
+                        {
+                            "train_id": "TIMEOUT",
+                            "origin": "Torino",
+                            "destination": "Milano",
+                            "departure": "2026-07-16T10:00:00Z",
+                            "seat_classes": [
+                                {
+                                    "class": "standard",
+                                    "price": 12.50,
+                                    "currency": "EUR",
+                                    "available": 0,
+                                }
+                            ],
                         }
                     ]
                 },
             )
             return
         if self.path == "/api/v1/orders":
-            if self._authorized():
+            if self._authorized("orders"):
                 self._json(200, [])
             return
         if self.path.startswith("/api/v1/orders/"):
-            if not self._authorized():
+            if not self._authorized("orders"):
                 return
             order_id = self.path.rsplit("/", 1)[-1]
             order = next(
@@ -90,7 +151,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"error": "not_found"})
                 return
             order["polls"] += 1
-            if order["polls"] >= 2:
+            train_id = order["body"]["train_id"]
+            if train_id == "FULL":
+                order["status"] = "FAILED"
+            elif train_id == "DECLINE":
+                order["status"] = "RESERVED" if order["polls"] == 1 else "FAILED"
+            elif train_id == "TIMEOUT":
+                order["status"] = "PENDING"
+            elif order["polls"] == 1:
+                order["status"] = "RESERVED"
+            else:
                 order["status"] = "CONFIRMED"
             self._json(
                 200,
@@ -124,7 +194,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/api/v1/orders":
-            if not self._authorized():
+            if not self._authorized("orders"):
                 return
             body = self._body()
             key = body["idempotency_key"]
@@ -155,7 +225,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
             return
         if self.path == "/reserve":
-            if not self._authorized():
+            if not self._authorized("inventory"):
                 return
             body = self._body()
             if body["train_id"] == "FULL":
@@ -174,7 +244,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         if self.path == "/api/v1/payments/authorize":
-            if not self._authorized():
+            if not self._authorized("payments"):
                 return
             body = self._body()
             if float(body["amount"]) > 500:
