@@ -26,7 +26,7 @@ class CatalogController(
 
     @Operation(
         summary = "List products",
-        description = "Returns the complete train catalog with seat classes and prices.",
+        description = "Returns the complete and adjourned train catalog with seat classes and prices.",
     )
     @ApiResponses(
         value = [
