@@ -22,7 +22,15 @@ export const Catalog = () => {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const isLanding = location.pathname === '/';
-  const todayIso = new Date().toISOString().split('T')[0];
+
+  const toLocalIso = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const todayIso = toLocalIso(new Date());
   const nowMs = Date.now();
 
   useEffect(() => {
