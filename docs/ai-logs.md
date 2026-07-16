@@ -1087,3 +1087,35 @@ Final Retry/CircuitBreaker interaction check for Inventory showed that one logic
 **Confidence**
 
 High — full Orders tests and `check` passed after Docker-backed persistence, mapper, rollback, outbox JSONB, and client resilience coverage.
+## 2026-07-16 — Correct demo traffic after PR review
+
+**Agent:** OpenAI Codex
+
+**Task:** Fix the existing `feat/demo-traffic-scripts` PR without creating or
+merging another PR.
+
+**Files modified:**
+
+- `demo/traffic/Common.ps1`
+- `demo/traffic/Invoke-*.ps1`
+- `demo/traffic/Run-AllServicesTraffic.ps1`
+- `demo/traffic/README.md`
+- `demo/traffic/tests/*`
+- `.github/workflows/pr.yaml`
+- `docs/ai-mistakes.md`
+- `docs/agent-log.md`
+
+**Summary:** Made every target resolve to a validated destination, added
+independent routing per service, implemented the Orders money path, dynamic
+Inventory selection, unique/duplicate idempotency checks, explicit safe gateway
+modes, structured job output, cleanup, and local smoke tests.
+
+**Verification:** All PowerShell files parsed; the Python fixture compiled; the
+smoke suite passed for HTTP status handling, target mismatch, Orders terminal
+polling, Inventory/Payments duplicate identity, gateway modes, parallel
+orchestration, and job cleanup.
+
+**Risks:** Business modes consume real seats and may invoke the configured
+payment gateway. They remain explicit, low-rate, capped, and documented.
+
+---
