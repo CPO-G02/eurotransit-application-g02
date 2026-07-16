@@ -32,11 +32,6 @@ export const Checkout = () => {
     return digits.replace(/\D/g, '').slice(0, 16).replace(/(.{4})/g, '$1 ').trim();
   };
 
-  // Auto-corrects the month as you type: a lone digit over 1 gets zero-padded
-  // (e.g. "6" -> "06"), and an invalid two-digit month (e.g. "13", "14") is
-  // never clamped to "12" — instead the first digit becomes its own
-  // zero-padded month and the second digit starts the year, so typing "13"
-  // lands on "01/3" rather than silently becoming "12".
   const sanitizeExpiryDigits = (rawDigits: string) => {
     let digits = rawDigits.replace(/\D/g, '').slice(0, 4);
 

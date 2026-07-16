@@ -272,6 +272,23 @@
   background: var(--accent-dim);
 }
 
+.day-tab.is-past {
+  background: var(--bg-base);
+  border-color: var(--border-subtle);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.day-tab.is-past:hover {
+  border-color: var(--border-subtle);
+  color: var(--text-tertiary);
+}
+
+.day-tab.is-past .day-tab-bottom {
+  color: var(--text-tertiary);
+}
+
 .day-tab.active {
   background: var(--accent);
   border-color: var(--accent);
@@ -360,6 +377,21 @@
   border-color: var(--border-hover);
 }
 
+.train-row.departed {
+  opacity: 0.55;
+  background: var(--bg-base);
+}
+
+.train-row.departed:hover {
+  border-color: var(--border-subtle);
+}
+
+.train-row.departed .row-price,
+.train-row.departed .row-station,
+.train-row.departed .row-time-value {
+  color: var(--text-tertiary);
+}
+
 .row-time {
   display: flex;
   flex-direction: column;
@@ -432,6 +464,11 @@
   text-transform: uppercase;
 }
 
+.row-status-pill.departed {
+  color: var(--text-tertiary);
+  background: var(--bg-surface-raised);
+}
+
 .row-price-block {
   display: flex;
   flex-direction: column;
@@ -471,6 +508,19 @@
   background: var(--accent);
   border-color: var(--accent);
   color: #ffffff;
+}
+
+.btn-book-row:disabled {
+  background: var(--bg-surface-raised);
+  border-color: var(--border-subtle);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+.btn-book-row:disabled:hover {
+  background: var(--bg-surface-raised);
+  border-color: var(--border-subtle);
+  color: var(--text-tertiary);
 }
 
 .loading-state {

@@ -19,7 +19,6 @@
   --accent-dim: rgba(109, 74, 168, 0.08);
   --accent-border: rgba(109, 74, 168, 0.28);
 
-  /* status */
   --status-green: #16a34a;
   --status-green-dim: rgba(22, 163, 74, 0.08);
   --status-blue: #0284c7;
@@ -27,12 +26,10 @@
   --status-red: #dc2626;
   --status-red-dim: rgba(220, 38, 38, 0.08);
 
-  /* type */
   --font-display: 'Space Grotesk', 'Inter', sans-serif;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* geometry */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
