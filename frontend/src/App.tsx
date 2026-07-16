@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
 import { Navbar } from './components/Navbar';
+import { Footer } from './components/Footer';
 import { Catalog } from './components/Catalog';
 import { MyTrips } from './components/MyTrips';
 import { Checkout } from './components/Checkout';
@@ -32,6 +33,7 @@ export const App = () => {
           <Route path="/checkout/:trainId" element={<Checkout />} />
         </Routes>
       </main>
+      <Footer />
     </div>
   );
 };

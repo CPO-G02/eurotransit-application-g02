@@ -4,7 +4,7 @@
   align-items: center;
   height: var(--nav-height);
   padding: 0 2rem;
-  background-color: rgba(10, 14, 21, 0.86);
+  background-color: rgba(255, 255, 255, 0.86);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-subtle);
@@ -43,7 +43,7 @@
 }
 
 .brand-name-a {
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .brand-name-b {
@@ -78,11 +78,11 @@
 }
 
 .nav-link:hover {
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .nav-link.active {
-  color: #ffffff;
+  color: var(--accent);
   background: var(--accent-dim);
   border: 1px solid var(--accent-border);
 }
@@ -107,7 +107,7 @@
 }
 
 .user-greeting strong {
-  color: #ffffff;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -149,8 +149,8 @@
 }
 
 .btn-logout:hover {
-  background-color: var(--bg-surface);
-  color: #ffffff;
+  background-color: var(--bg-surface-raised);
+  color: var(--text-primary);
   border-color: var(--border-hover);
 }
 

@@ -1,9 +1,15 @@
-import './Footer.css';
+.site-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background-color: var(--bg-base);
+  border-top: 1px solid var(--border-subtle);
+}
 
-export const Footer = () => {
-  return (
-    <footer className="site-footer">
-      <span className="footer-text">EuroTransit &middot; Est. 2026</span>
-    </footer>
-  );
-};
+.footer-text {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  letter-spacing: 0.3px;
+}

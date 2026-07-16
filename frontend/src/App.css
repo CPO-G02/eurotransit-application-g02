@@ -1,31 +1,31 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
 
 :root {
-  --bg-void: #05070a;
-  --bg-base: #0a0e15;
-  --bg-surface: #10161f;
-  --bg-surface-raised: #151d29;
+  --bg-void: #ffffff;
+  --bg-base: #f8f7fb;
+  --bg-surface: #ffffff;
+  --bg-surface-raised: #f2eff8;
 
-  --border-subtle: #1e2836;
-  --border-default: #263548;
-  --border-hover: #3a4a63;
+  --border-subtle: #eae7f1;
+  --border-default: #ddd7e8;
+  --border-hover: #c2b6dc;
 
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-tertiary: #5b6b82;
+  --text-primary: #1c1526;
+  --text-secondary: #6b6478;
+  --text-tertiary: #a49bb8;
 
-  --accent: #ee7a1f;
-  --accent-hover: #d4680f;
-  --accent-dim: rgba(238, 122, 31, 0.12);
-  --accent-border: rgba(238, 122, 31, 0.35);
+  --accent: #6d4aa8;
+  --accent-hover: #5a3c8f;
+  --accent-dim: rgba(109, 74, 168, 0.08);
+  --accent-border: rgba(109, 74, 168, 0.28);
 
   /* status */
-  --status-green: #22c55e;
-  --status-green-dim: rgba(34, 197, 94, 0.1);
-  --status-blue: #38bdf8;
-  --status-blue-dim: rgba(56, 189, 248, 0.1);
-  --status-red: #ef4444;
-  --status-red-dim: rgba(239, 68, 68, 0.1);
+  --status-green: #16a34a;
+  --status-green-dim: rgba(22, 163, 74, 0.08);
+  --status-blue: #0284c7;
+  --status-blue-dim: rgba(2, 132, 199, 0.08);
+  --status-red: #dc2626;
+  --status-red-dim: rgba(220, 38, 38, 0.08);
 
   /* type */
   --font-display: 'Space Grotesk', 'Inter', sans-serif;
@@ -36,7 +36,7 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
-  --shadow-elevated: 0 24px 48px -20px rgba(0, 0, 0, 0.65);
+  --shadow-elevated: 0 24px 48px -20px rgba(28, 21, 38, 0.14);
   --nav-height: 64px;
 }
 
@@ -51,7 +51,7 @@ body,
   padding: 0;
   min-height: 100%;
   background-color: var(--bg-void);
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
@@ -59,6 +59,18 @@ body {
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 button,
