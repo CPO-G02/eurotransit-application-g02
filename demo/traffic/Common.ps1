@@ -2,9 +2,17 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Get-EuroTransitAccessToken {
-    param([string]$AccessToken)
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('orders', 'inventory', 'payments')]
+        [string]$Service,
+        [string]$AccessToken
+    )
 
     if ($AccessToken) { return $AccessToken }
+    $serviceVariable = "EUROTRANSIT_$($Service.ToUpperInvariant())_ACCESS_TOKEN"
+    $serviceToken = [Environment]::GetEnvironmentVariable($serviceVariable)
+    if ($serviceToken) { return $serviceToken }
     if ($env:EUROTRANSIT_ACCESS_TOKEN) { return $env:EUROTRANSIT_ACCESS_TOKEN }
     return $null
 }
@@ -37,7 +45,12 @@ function Resolve-EuroTransitDestination {
         [string]$Target,
         [string]$BaseUrl,
         [string]$PortForwardServiceName,
-        [string]$PublicBaseUrl = 'https://g02.cpo2026.it'
+        [string]$PublicBaseUrl = 'https://g02.cpo2026.it',
+        [string]$ExpectedPublicHost = 'g02.cpo2026.it',
+        [ValidateSet('http', 'https')][string]$ExpectedPublicScheme = 'https',
+        [ValidateRange(1, 65535)][int]$ExpectedPublicPort = 443,
+        [ValidatePattern('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')]
+        [string]$KubernetesNamespace = 'eurotransit'
     )
 
     $baseService = "eurotransit-$Service"
@@ -57,12 +70,25 @@ function Resolve-EuroTransitDestination {
         if ($uri.Host -in @('localhost', '127.0.0.1', '::1')) {
             throw 'Target Public must resolve through the public ingress, not a loopback port-forward.'
         }
+        $normalizedExpectedHost = $ExpectedPublicHost.TrimEnd('.').ToLowerInvariant()
+        $normalizedActualHost = $uri.DnsSafeHost.TrimEnd('.').ToLowerInvariant()
+        if ($normalizedActualHost -ne $normalizedExpectedHost) {
+            throw "Target Public expects host '$normalizedExpectedHost', got '$normalizedActualHost'. Override -ExpectedPublicHost explicitly for another environment."
+        }
+        if ($uri.Scheme -ne $ExpectedPublicScheme) {
+            throw "Target Public expects scheme '$ExpectedPublicScheme', got '$($uri.Scheme)'."
+        }
+        if ($uri.Port -ne $ExpectedPublicPort) {
+            throw "Target Public expects port '$ExpectedPublicPort', got '$($uri.Port)'."
+        }
+        $officialIngress = $normalizedExpectedHost -eq 'g02.cpo2026.it' `
+            -and $ExpectedPublicScheme -eq 'https' -and $ExpectedPublicPort -eq 443
         return [pscustomobject]@{
             Service = $Service
             Target = $Target
             BaseUri = $uri
-            DestinationService = 'traefik-public-route'
-            Validation = 'public-ingress'
+            DestinationService = if ($officialIngress) { 'traefik-public-route' } else { 'configured-public-route' }
+            Validation = if ($officialIngress) { 'official-public-ingress' } else { 'explicit-public-environment' }
             ApplicationTraffic = $true
         }
     }
@@ -85,9 +111,16 @@ function Resolve-EuroTransitDestination {
         $validation = 'asserted-port-forward'
     }
     else {
-        $dnsService = ($uri.DnsSafeHost -split '\.')[0]
-        if ($dnsService -ne $expectedService) {
-            throw "Target $Target for $Service expects destination host '$expectedService', got '$($uri.DnsSafeHost)'."
+        $normalizedHost = $uri.DnsSafeHost.TrimEnd('.').ToLowerInvariant()
+        $normalizedNamespace = $KubernetesNamespace.ToLowerInvariant()
+        $allowedHosts = @(
+            $expectedService,
+            "$expectedService.$normalizedNamespace",
+            "$expectedService.$normalizedNamespace.svc",
+            "$expectedService.$normalizedNamespace.svc.cluster.local"
+        )
+        if ($normalizedHost -notin $allowedHosts) {
+            throw "Target $Target for $Service expects Kubernetes Service DNS '$expectedService' in namespace '$normalizedNamespace', got '$normalizedHost'."
         }
         if ($PortForwardServiceName -and $PortForwardServiceName -ne $expectedService) {
             throw "PortForwardServiceName '$PortForwardServiceName' does not match '$expectedService'."
@@ -331,15 +364,34 @@ function Invoke-EuroTransitTraffic {
     }
 }
 
+function Stop-EuroTransitJobs {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [System.Collections.IEnumerable]$Jobs
+    )
+
+    foreach ($job in @($Jobs)) {
+        if ($null -eq $job) { continue }
+        $job | Stop-Job -ErrorAction SilentlyContinue
+        $job | Remove-Job -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Get-EuroTransitCatalogSelection {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][psobject]$Destination,
         [ValidateRange(1, 20)][int]$Quantity = 1,
         [ValidateRange(1, 100000)][int]$MinimumAvailability = 1,
+        [string]$TrainId,
+        [Alias('SeatClass')][string]$RequestedSeatClass,
         [int]$TimeoutSeconds = 10
     )
 
+    if ([bool]$TrainId -xor [bool]$RequestedSeatClass) {
+        throw 'Specify both TrainId and SeatClass, or neither.'
+    }
     $uri = Join-EuroTransitUri -BaseUri $Destination.BaseUri -Path '/api/v1/catalog/products'
     $response = Invoke-EuroTransitHttpRequest -Uri $uri -TimeoutSeconds $TimeoutSeconds
     if ($response.StatusCode -ne 200 -or $null -eq $response.Json) {
@@ -348,21 +400,34 @@ function Get-EuroTransitCatalogSelection {
 
     $candidates = [System.Collections.Generic.List[object]]::new()
     foreach ($product in @($response.Json.products)) {
-        foreach ($seatClass in @($product.seat_classes)) {
-            if ([int]$seatClass.available -ge [Math]::Max($Quantity, $MinimumAvailability)) {
+        if ($TrainId -and [string]$product.train_id -ne $TrainId) { continue }
+        foreach ($seatClassOffer in @($product.seat_classes)) {
+            if ($RequestedSeatClass -and [string]$seatClassOffer.class -ne $RequestedSeatClass) { continue }
+            $availabilityAccepted = if ($TrainId) {
+                # Catalog is stale-tolerant. Explicit demo data is selected even
+                # when its nominal availability is zero; Inventory is authoritative.
+                $true
+            }
+            else {
+                [int]$seatClassOffer.available -ge [Math]::Max($Quantity, $MinimumAvailability)
+            }
+            if ($availabilityAccepted) {
                 $candidates.Add([pscustomobject]@{
                     train_id = [string]$product.train_id
-                    seat_class = [string]$seatClass.class
+                    seat_class = [string]$seatClassOffer.class
                     quantity = $Quantity
-                    unit_price = [decimal]$seatClass.price
-                    amount = [decimal]$seatClass.price * $Quantity
-                    currency = [string]$seatClass.currency
-                    catalog_available = [int]$seatClass.available
+                    unit_price = [decimal]$seatClassOffer.price
+                    amount = [decimal]$seatClassOffer.price * $Quantity
+                    currency = [string]$seatClassOffer.currency
+                    catalog_available = [int]$seatClassOffer.available
                 })
             }
         }
     }
     if ($candidates.Count -eq 0) {
+        if ($TrainId) {
+            throw "Catalog returned no exact offer for train '$TrainId' and class '$RequestedSeatClass'."
+        }
         throw "Catalog returned no seat class with at least $([Math]::Max($Quantity, $MinimumAvailability)) available seats."
     }
     return $candidates | Get-Random

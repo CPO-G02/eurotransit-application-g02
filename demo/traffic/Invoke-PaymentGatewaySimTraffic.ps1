@@ -3,6 +3,7 @@ param(
     [ValidateSet('Active', 'Preview')][string]$Target = 'Active',
     [string]$BaseUrl,
     [string]$PortForwardServiceName,
+    [string]$KubernetesNamespace = 'eurotransit',
     [ValidateSet('Success', 'Latency', 'Failure')][string]$Mode = 'Success',
     [ValidateRange(1, 30000)][int]$LatencyMilliseconds = 1500,
     [switch]$AllowFailureMode,
@@ -19,7 +20,8 @@ if ($Mode -eq 'Failure' -and -not $AllowFailureMode) {
 }
 
 $destination = Resolve-EuroTransitDestination -Service payment-gateway-sim -Target $Target `
-    -BaseUrl $BaseUrl -PortForwardServiceName $PortForwardServiceName
+    -BaseUrl $BaseUrl -PortForwardServiceName $PortForwardServiceName `
+    -KubernetesNamespace $KubernetesNamespace
 $headers = switch ($Mode) {
     'Success' { @{ 'X-Simulate-Delay-Ms' = '0' } }
     'Latency' { @{ 'X-Simulate-Delay-Ms' = [string]$LatencyMilliseconds } }

@@ -3,6 +3,7 @@ param(
     [ValidateSet('Active', 'Preview')][string]$Target = 'Active',
     [string]$BaseUrl,
     [string]$PortForwardServiceName,
+    [string]$KubernetesNamespace = 'eurotransit',
     [ValidateSet('Readiness', 'Business')][string]$Mode = 'Readiness',
     [string]$AccessToken,
     [switch]$AcknowledgeSafeGatewayConfiguration,
@@ -20,7 +21,8 @@ param(
 . (Join-Path $PSScriptRoot 'Common.ps1')
 
 $destination = Resolve-EuroTransitDestination -Service payments -Target $Target `
-    -BaseUrl $BaseUrl -PortForwardServiceName $PortForwardServiceName
+    -BaseUrl $BaseUrl -PortForwardServiceName $PortForwardServiceName `
+    -KubernetesNamespace $KubernetesNamespace
 
 if ($Mode -eq 'Readiness') {
     Invoke-EuroTransitTraffic -Service payments -Destination $destination `
@@ -37,9 +39,9 @@ if (-not $AcknowledgeSafeGatewayConfiguration) {
 if ($RequestsPerMinute -gt 10) {
     throw 'Payments Business traffic is capped at 10 requests per minute.'
 }
-$token = Get-EuroTransitAccessToken $AccessToken
+$token = Get-EuroTransitAccessToken -Service payments -AccessToken $AccessToken
 if (-not $token) {
-    throw 'Payments Business traffic requires -AccessToken or EUROTRANSIT_ACCESS_TOKEN.'
+    throw 'Payments Business traffic requires -AccessToken, EUROTRANSIT_PAYMENTS_ACCESS_TOKEN, or the explicit EUROTRANSIT_ACCESS_TOKEN compatibility fallback.'
 }
 $headers = @{ Authorization = "Bearer $token" }
 $timing = Get-EuroTransitDeadline -DurationMinutes $DurationMinutes -DurationSeconds $DurationSeconds

@@ -4,13 +4,22 @@ param(
     [string]$Target = 'Public',
     [string]$BaseUrl,
     [string]$PortForwardServiceName,
+    [string]$ExpectedPublicHost = 'g02.cpo2026.it',
+    [ValidateSet('http', 'https')][string]$ExpectedPublicScheme = 'https',
+    [ValidateRange(1, 65535)][int]$ExpectedPublicPort = 443,
+    [string]$KubernetesNamespace = 'eurotransit',
     [ValidateSet('ReadOnly', 'MoneyPath')][string]$Mode = 'ReadOnly',
     [string]$AccessToken,
     [switch]$AcknowledgeMoneyPathSideEffects,
+    [switch]$AcknowledgeSafePaymentGateway,
     [ValidateSet('Public', 'Stable', 'Canary', 'Active', 'Preview')]
     [string]$CatalogTarget = 'Public',
     [string]$CatalogBaseUrl,
     [string]$CatalogPortForwardServiceName,
+    [string]$TrainId,
+    [string]$SeatClass,
+    [ValidateSet('Confirmed', 'InsufficientInventory', 'PaymentDeclined')]
+    [string]$ExpectedOutcome = 'Confirmed',
     [ValidateRange(1, 20)][int]$Quantity = 1,
     [ValidateRange(1, 20)][int]$MaxNewOperations = 3,
     [ValidateRange(0, 100)][int]$DuplicatePercentage = 20,
@@ -27,10 +36,12 @@ param(
 . (Join-Path $PSScriptRoot 'Common.ps1')
 
 $destination = Resolve-EuroTransitDestination -Service orders -Target $Target `
-    -BaseUrl $BaseUrl -PortForwardServiceName $PortForwardServiceName
-$token = Get-EuroTransitAccessToken $AccessToken
+    -BaseUrl $BaseUrl -PortForwardServiceName $PortForwardServiceName `
+    -ExpectedPublicHost $ExpectedPublicHost -ExpectedPublicScheme $ExpectedPublicScheme `
+    -ExpectedPublicPort $ExpectedPublicPort -KubernetesNamespace $KubernetesNamespace
+$token = Get-EuroTransitAccessToken -Service orders -AccessToken $AccessToken
 if (-not $token) {
-    throw 'Orders traffic requires -AccessToken or EUROTRANSIT_ACCESS_TOKEN.'
+    throw 'Orders traffic requires -AccessToken, EUROTRANSIT_ORDERS_ACCESS_TOKEN, or the explicit EUROTRANSIT_ACCESS_TOKEN compatibility fallback.'
 }
 $headers = @{ Authorization = "Bearer $token" }
 
@@ -43,25 +54,36 @@ if ($Mode -eq 'ReadOnly') {
 }
 
 if (-not $AcknowledgeMoneyPathSideEffects) {
-    throw 'MoneyPath mode creates real orders, reserves seats, and invokes Payments. Pass -AcknowledgeMoneyPathSideEffects after verifying the environment is safe.'
+    throw 'MoneyPath mode creates real orders and reserves seats. Pass -AcknowledgeMoneyPathSideEffects only in a controlled environment.'
+}
+if (-not $AcknowledgeSafePaymentGateway) {
+    throw 'MoneyPath invokes Payments. Pass -AcknowledgeSafePaymentGateway only after manually confirming that Payments uses a local/test gateway rather than real Stripe.'
 }
 if ($RequestsPerMinute -gt 10) {
     throw 'Orders MoneyPath traffic is capped at 10 new operations per minute.'
 }
+if ([bool]$TrainId -xor [bool]$SeatClass) {
+    throw 'Specify both -TrainId and -SeatClass, or neither.'
+}
 
 $catalogDestination = Resolve-EuroTransitDestination -Service catalog -Target $CatalogTarget `
-    -BaseUrl $CatalogBaseUrl -PortForwardServiceName $CatalogPortForwardServiceName
+    -BaseUrl $CatalogBaseUrl -PortForwardServiceName $CatalogPortForwardServiceName `
+    -ExpectedPublicHost $ExpectedPublicHost -ExpectedPublicScheme $ExpectedPublicScheme `
+    -ExpectedPublicPort $ExpectedPublicPort -KubernetesNamespace $KubernetesNamespace
 $timing = Get-EuroTransitDeadline -DurationMinutes $DurationMinutes -DurationSeconds $DurationSeconds
 $records = [System.Collections.Generic.List[object]]::new()
 $endToEndLatencies = [System.Collections.Generic.List[double]]::new()
+$statusSequences = [System.Collections.Generic.List[string]]::new()
 $baseDelayMs = 60000.0 / $RequestsPerMinute
 $accepted = 0
 $confirmed = 0
-$failedOrders = 0
-$pollTimeouts = 0
+$failedInsufficientInventory = 0
+$failedPaymentDeclined = 0
+$failedUnclassifiedBusiness = 0
+$failedTechnical = 0
+$pendingOrTimeout = 0
 $duplicateAttempts = 0
 $idempotencyMismatches = 0
-$protocolFailures = 0
 $catalogLookups = 0
 
 try {
@@ -69,7 +91,8 @@ try {
         $operationStarted = Get-Date
         $operationStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         try {
-            $selection = Get-EuroTransitCatalogSelection -Destination $catalogDestination -Quantity $Quantity
+            $selection = Get-EuroTransitCatalogSelection -Destination $catalogDestination `
+                -Quantity $Quantity -TrainId $TrainId -SeatClass $SeatClass
             $catalogLookups++
             $idempotencyKey = "demo-order-$([guid]::NewGuid())"
             $body = @{
@@ -92,9 +115,10 @@ try {
                 outcome = if ($createValid) { 'success' } else { 'failure' }
                 error_type = if ($create.ErrorType) { $create.ErrorType } elseif (-not $createValid) { 'http-or-contract' } else { $null }
                 latency_ms = $create.LatencyMs; idempotency_key = $idempotencyKey; operation_id = $null
+                order_status = if ($create.Json) { [string]$create.Json.status } else { $null }
             })
             if (-not $createValid) {
-                $protocolFailures++
+                $failedTechnical++
                 continue
             }
 
@@ -109,7 +133,7 @@ try {
                 $duplicateValid = $duplicate.StatusCode -in @(202, 409) -and $duplicateId -eq $orderId
                 if (-not $duplicateValid) {
                     $idempotencyMismatches++
-                    $protocolFailures++
+                    $failedTechnical++
                 }
                 $records.Add([pscustomobject]@{
                     service = 'orders'; target = $destination.Target; destination_service = $destination.DestinationService
@@ -118,15 +142,18 @@ try {
                     outcome = if ($duplicateValid) { 'success' } else { 'failure' }
                     error_type = if ($duplicate.ErrorType) { $duplicate.ErrorType } elseif (-not $duplicateValid) { 'idempotency' } else { $null }
                     latency_ms = $duplicate.LatencyMs; idempotency_key = $idempotencyKey; operation_id = $duplicateId
+                    order_status = if ($duplicate.Json) { [string]$duplicate.Json.status } else { $null }
                 })
             }
 
             $pollDeadline = (Get-Date).AddSeconds($PollTimeoutSeconds)
             $terminalStatus = $null
+            $observedStatuses = [System.Collections.Generic.List[string]]::new()
             while ((Get-Date) -lt $pollDeadline -and (Get-Date) -lt $timing.Deadline) {
                 $pollUri = Join-EuroTransitUri -BaseUri $destination.BaseUri -Path "/api/v1/orders/$orderId"
                 $poll = Invoke-EuroTransitHttpRequest -Uri $pollUri -Headers $headers
                 $pollValid = $poll.StatusCode -eq 200 -and $null -ne $poll.Json -and $poll.Json.order_id -eq $orderId
+                $status = if ($pollValid) { [string]$poll.Json.status } else { $null }
                 $records.Add([pscustomobject]@{
                     service = 'orders'; target = $destination.Target; destination_service = $destination.DestinationService
                     timestamp = (Get-Date).ToUniversalTime().ToString('o'); operation = 'poll'
@@ -134,12 +161,15 @@ try {
                     outcome = if ($pollValid) { 'success' } else { 'failure' }
                     error_type = if ($poll.ErrorType) { $poll.ErrorType } elseif (-not $pollValid) { 'http-or-contract' } else { $null }
                     latency_ms = $poll.LatencyMs; idempotency_key = $idempotencyKey; operation_id = $orderId
+                    order_status = $status
                 })
                 if (-not $pollValid) {
-                    $protocolFailures++
+                    $failedTechnical++
                     break
                 }
-                $status = [string]$poll.Json.status
+                if ($observedStatuses.Count -eq 0 -or $observedStatuses[$observedStatuses.Count - 1] -ne $status) {
+                    $observedStatuses.Add($status)
+                }
                 if ($status -in @('CONFIRMED', 'FAILED')) {
                     $terminalStatus = $status
                     break
@@ -153,22 +183,44 @@ try {
                 }
             }
 
+            $statusSequences.Add("${orderId}:$($observedStatuses -join '>')")
             $operationStopwatch.Stop()
             $endToEndLatencies.Add($operationStopwatch.Elapsed.TotalMilliseconds)
             switch ($terminalStatus) {
-                'CONFIRMED' { $confirmed++ }
-                'FAILED' { $failedOrders++ }
-                default { $pollTimeouts++ }
+                'CONFIRMED' {
+                    $confirmed++
+                }
+                'FAILED' {
+                    $reachedReserved = $observedStatuses -contains 'RESERVED'
+                    if (-not $reachedReserved) {
+                        # Real Orders Stage1 writes FAILED directly when
+                        # Inventory reports insufficient seats.
+                        $failedInsufficientInventory++
+                    }
+                    elseif ($ExpectedOutcome -eq 'PaymentDeclined') {
+                        # GET /orders/{id} contains no failure reason. A
+                        # RESERVED -> FAILED sequence proves the failure
+                        # occurred after Inventory, while the exact decline
+                        # classification remains operator-declared.
+                        $failedPaymentDeclined++
+                    }
+                    else {
+                        $failedUnclassifiedBusiness++
+                    }
+                }
+                default {
+                    $pendingOrTimeout++
+                }
             }
         }
         catch {
-            $protocolFailures++
+            $failedTechnical++
             $records.Add([pscustomobject]@{
                 service = 'orders'; target = $destination.Target; destination_service = $destination.DestinationService
                 timestamp = (Get-Date).ToUniversalTime().ToString('o'); operation = 'money-path'
                 method = 'MULTI'; uri = $destination.BaseUri.AbsoluteUri; status_code = $null
                 outcome = 'failure'; error_type = 'script'; latency_ms = $operationStopwatch.Elapsed.TotalMilliseconds
-                idempotency_key = $null; operation_id = $null
+                idempotency_key = $null; operation_id = $null; order_status = $null
             })
         }
         finally {
@@ -178,21 +230,48 @@ try {
     }
 }
 finally {
-    $passed = $accepted -gt 0 -and $confirmed -eq $accepted -and $failedOrders -eq 0 `
-        -and $pollTimeouts -eq 0 -and $idempotencyMismatches -eq 0 -and $protocolFailures -eq 0
+    $passed = switch ($ExpectedOutcome) {
+        'Confirmed' {
+            $confirmed -gt 0 -and $failedTechnical -eq 0 -and $pendingOrTimeout -eq 0 `
+                -and $idempotencyMismatches -eq 0
+        }
+        'InsufficientInventory' {
+            $failedInsufficientInventory -gt 0 -and $failedTechnical -eq 0 `
+                -and $pendingOrTimeout -eq 0 -and $idempotencyMismatches -eq 0
+        }
+        'PaymentDeclined' {
+            $failedPaymentDeclined -gt 0 -and $failedTechnical -eq 0 `
+                -and $pendingOrTimeout -eq 0 -and $idempotencyMismatches -eq 0
+        }
+    }
+    $classificationSource = if ($ExpectedOutcome -eq 'Confirmed') {
+        'order-status-only-no-failure-reason-in-api'
+    }
+    else {
+        'operator-expected-scenario-plus-terminal-order-status'
+    }
     $summary = New-EuroTransitTrafficSummary -Service orders -Destination $destination `
         -TrafficMode 'money-path' -Started $timing.Started -Finished (Get-Date) -Records $records `
         -Passed $passed -AdditionalFields @{
             catalog_target = $catalogDestination.Target
             catalog_destination_service = $catalogDestination.DestinationService
             catalog_lookups = $catalogLookups
+            catalog_availability_authoritative = $false
+            expected_outcome = $ExpectedOutcome
+            failure_classification_source = $classificationSource
             new_operations = $accepted
+            confirmed = $confirmed
             confirmed_orders = $confirmed
-            failed_orders = $failedOrders
-            pending_or_timed_out_orders = $pollTimeouts
+            failed_insufficient_inventory = $failedInsufficientInventory
+            failed_payment_declined = $failedPaymentDeclined
+            failed_technical = $failedTechnical
+            failed_unclassified_business = $failedUnclassifiedBusiness
+            pending_or_timeout = $pendingOrTimeout
+            pending_or_timed_out_orders = $pendingOrTimeout
             duplicate_attempts = $duplicateAttempts
             idempotency_mismatches = $idempotencyMismatches
-            protocol_failures = $protocolFailures
+            protocol_failures = $failedTechnical
+            observed_status_sequences = @($statusSequences)
             average_end_to_end_ms = if ($endToEndLatencies.Count) { [Math]::Round(($endToEndLatencies | Measure-Object -Average).Average, 2) } else { 0 }
             p95_end_to_end_ms = Get-Percentile $endToEndLatencies 95
         }

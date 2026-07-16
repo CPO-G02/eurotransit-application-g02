@@ -3,8 +3,20 @@ param(
     [int]$DurationMinutes = 20,
     [int]$DurationSeconds = 0,
     [string]$AccessToken,
-    [switch]$EnableBusinessTraffic,
-    [switch]$AcknowledgeBusinessSideEffects,
+    [string]$OrdersAccessToken,
+    [string]$InventoryAccessToken,
+    [string]$PaymentsAccessToken,
+    [ValidateSet('ReadOnly', 'MoneyPath', 'PerServiceBusiness', 'CombinedExplicit')]
+    [string]$TrafficProfile = 'ReadOnly',
+    [switch]$AcknowledgeMoneyPathSideEffects,
+    [switch]$AcknowledgePerServiceBusinessSideEffects,
+    [switch]$AcknowledgeCombinedSideEffects,
+    [switch]$AcknowledgeSafePaymentGateway,
+    [switch]$IncludeGatewaySimulator,
+    [string]$ExpectedPublicHost = 'g02.cpo2026.it',
+    [ValidateSet('http', 'https')][string]$ExpectedPublicScheme = 'https',
+    [ValidateRange(1, 65535)][int]$ExpectedPublicPort = 443,
+    [string]$KubernetesNamespace = 'eurotransit',
 
     [ValidateSet('Public', 'Stable', 'Canary', 'Active', 'Preview')][string]$FrontendTarget = 'Public',
     [string]$FrontendBaseUrl,
@@ -19,6 +31,10 @@ param(
     [ValidateSet('Public', 'Stable', 'Canary', 'Active', 'Preview')][string]$OrdersTarget = 'Public',
     [string]$OrdersBaseUrl,
     [string]$OrdersPortForwardServiceName,
+    [string]$OrdersTrainId,
+    [string]$OrdersSeatClass,
+    [ValidateSet('Confirmed', 'InsufficientInventory', 'PaymentDeclined')]
+    [string]$OrdersExpectedOutcome = 'Confirmed',
     [ValidateRange(1, 6000)][int]$OrdersRequestsPerMinute = 60,
 
     [ValidateSet('Active', 'Preview')][string]$InventoryTarget = 'Active',
@@ -40,97 +56,138 @@ param(
     [string]$OutputDirectory = (Join-Path $PSScriptRoot 'results')
 )
 
-if ($EnableBusinessTraffic -and -not $AcknowledgeBusinessSideEffects) {
-    throw 'Business mode creates orders, reserves seats, and invokes the configured payment gateway. Pass -AcknowledgeBusinessSideEffects only in a controlled environment.'
+. (Join-Path $PSScriptRoot 'Common.ps1')
+
+$moneyPathEnabled = $TrafficProfile -in @('MoneyPath', 'CombinedExplicit')
+$perServiceBusinessEnabled = $TrafficProfile -in @('PerServiceBusiness', 'CombinedExplicit')
+
+if ($moneyPathEnabled -and -not $AcknowledgeMoneyPathSideEffects) {
+    throw 'MoneyPath creates real orders and consumes Inventory through Orders. Pass -AcknowledgeMoneyPathSideEffects only in a controlled environment.'
+}
+if ($perServiceBusinessEnabled -and -not $AcknowledgePerServiceBusinessSideEffects) {
+    throw 'PerServiceBusiness directly reserves seats and authorizes payments. Pass -AcknowledgePerServiceBusinessSideEffects only in a controlled environment.'
+}
+if ($TrafficProfile -eq 'CombinedExplicit' -and -not $AcknowledgeCombinedSideEffects) {
+    throw 'CombinedExplicit duplicates downstream effects in addition to the Orders money path. Pass -AcknowledgeCombinedSideEffects to confirm this specific combined test.'
+}
+if (($moneyPathEnabled -or $perServiceBusinessEnabled) -and -not $AcknowledgeSafePaymentGateway) {
+    throw 'Business traffic may invoke Payments. Pass -AcknowledgeSafePaymentGateway only after manually confirming that Payments uses a local/test gateway rather than real Stripe.'
 }
 
-$ordersMode = if ($EnableBusinessTraffic) { 'MoneyPath' } else { 'ReadOnly' }
-$internalMode = if ($EnableBusinessTraffic) { 'Business' } else { 'Readiness' }
-$scripts = @(
-    @{
-        Name = 'frontend'
-        File = 'Invoke-FrontendTraffic.ps1'
-        Args = @{
-            Target = $FrontendTarget
-            BaseUrl = $FrontendBaseUrl
-            PortForwardServiceName = $FrontendPortForwardServiceName
-            RequestsPerMinute = $FrontendRequestsPerMinute
-        }
-    },
-    @{
-        Name = 'catalog'
-        File = 'Invoke-CatalogTraffic.ps1'
-        Args = @{
-            Target = $CatalogTarget
-            BaseUrl = $CatalogBaseUrl
-            PortForwardServiceName = $CatalogPortForwardServiceName
-            RequestsPerMinute = $CatalogRequestsPerMinute
-        }
-    },
-    @{
-        Name = 'orders'
-        File = 'Invoke-OrdersTraffic.ps1'
-        Args = @{
-            Target = $OrdersTarget
-            BaseUrl = $OrdersBaseUrl
-            PortForwardServiceName = $OrdersPortForwardServiceName
-            Mode = $ordersMode
-            AccessToken = $AccessToken
-            AcknowledgeMoneyPathSideEffects = [bool]$EnableBusinessTraffic
-            CatalogTarget = $CatalogTarget
-            CatalogBaseUrl = $CatalogBaseUrl
-            CatalogPortForwardServiceName = $CatalogPortForwardServiceName
-            RequestsPerMinute = if ($EnableBusinessTraffic) { [Math]::Min(10, $OrdersRequestsPerMinute) } else { $OrdersRequestsPerMinute }
-        }
-    },
-    @{
-        Name = 'inventory'
-        File = 'Invoke-InventoryTraffic.ps1'
-        Args = @{
-            Target = $InventoryTarget
-            BaseUrl = $InventoryBaseUrl
-            PortForwardServiceName = $InventoryPortForwardServiceName
-            Mode = $internalMode
-            AccessToken = $AccessToken
-            AcknowledgeSeatConsumption = [bool]$EnableBusinessTraffic
-            CatalogTarget = $CatalogTarget
-            CatalogBaseUrl = $CatalogBaseUrl
-            CatalogPortForwardServiceName = $CatalogPortForwardServiceName
-            RequestsPerMinute = if ($EnableBusinessTraffic) { [Math]::Min(10, $InventoryRequestsPerMinute) } else { $InventoryRequestsPerMinute }
-        }
-    },
-    @{
-        Name = 'payments'
-        File = 'Invoke-PaymentsTraffic.ps1'
-        Args = @{
-            Target = $PaymentsTarget
-            BaseUrl = $PaymentsBaseUrl
-            PortForwardServiceName = $PaymentsPortForwardServiceName
-            Mode = $internalMode
-            AccessToken = $AccessToken
-            AcknowledgeSafeGatewayConfiguration = [bool]$EnableBusinessTraffic
-            RequestsPerMinute = if ($EnableBusinessTraffic) { [Math]::Min(10, $PaymentsRequestsPerMinute) } else { $PaymentsRequestsPerMinute }
-        }
-    },
-    @{
+$ordersMode = if ($moneyPathEnabled) { 'MoneyPath' } else { 'ReadOnly' }
+$internalMode = if ($perServiceBusinessEnabled) { 'Business' } else { 'Readiness' }
+$ordersToken = if ($OrdersAccessToken) { $OrdersAccessToken } else { $AccessToken }
+$inventoryToken = if ($InventoryAccessToken) { $InventoryAccessToken } else { $AccessToken }
+$paymentsToken = if ($PaymentsAccessToken) { $PaymentsAccessToken } else { $AccessToken }
+
+$scripts = [System.Collections.Generic.List[object]]::new()
+$scripts.Add(@{
+    Name = 'frontend'
+    File = 'Invoke-FrontendTraffic.ps1'
+    Args = @{
+        Target = $FrontendTarget
+        BaseUrl = $FrontendBaseUrl
+        PortForwardServiceName = $FrontendPortForwardServiceName
+        ExpectedPublicHost = $ExpectedPublicHost
+        ExpectedPublicScheme = $ExpectedPublicScheme
+        ExpectedPublicPort = $ExpectedPublicPort
+        KubernetesNamespace = $KubernetesNamespace
+        RequestsPerMinute = $FrontendRequestsPerMinute
+    }
+})
+$scripts.Add(@{
+    Name = 'catalog'
+    File = 'Invoke-CatalogTraffic.ps1'
+    Args = @{
+        Target = $CatalogTarget
+        BaseUrl = $CatalogBaseUrl
+        PortForwardServiceName = $CatalogPortForwardServiceName
+        ExpectedPublicHost = $ExpectedPublicHost
+        ExpectedPublicScheme = $ExpectedPublicScheme
+        ExpectedPublicPort = $ExpectedPublicPort
+        KubernetesNamespace = $KubernetesNamespace
+        RequestsPerMinute = $CatalogRequestsPerMinute
+    }
+})
+$scripts.Add(@{
+    Name = 'orders'
+    File = 'Invoke-OrdersTraffic.ps1'
+    Args = @{
+        Target = $OrdersTarget
+        BaseUrl = $OrdersBaseUrl
+        PortForwardServiceName = $OrdersPortForwardServiceName
+        ExpectedPublicHost = $ExpectedPublicHost
+        ExpectedPublicScheme = $ExpectedPublicScheme
+        ExpectedPublicPort = $ExpectedPublicPort
+        KubernetesNamespace = $KubernetesNamespace
+        Mode = $ordersMode
+        AccessToken = $ordersToken
+        AcknowledgeMoneyPathSideEffects = $moneyPathEnabled
+        AcknowledgeSafePaymentGateway = [bool]$AcknowledgeSafePaymentGateway
+        CatalogTarget = $CatalogTarget
+        CatalogBaseUrl = $CatalogBaseUrl
+        CatalogPortForwardServiceName = $CatalogPortForwardServiceName
+        TrainId = $OrdersTrainId
+        SeatClass = $OrdersSeatClass
+        ExpectedOutcome = $OrdersExpectedOutcome
+        RequestsPerMinute = if ($moneyPathEnabled) { [Math]::Min(10, $OrdersRequestsPerMinute) } else { $OrdersRequestsPerMinute }
+    }
+})
+$scripts.Add(@{
+    Name = 'inventory'
+    File = 'Invoke-InventoryTraffic.ps1'
+    Args = @{
+        Target = $InventoryTarget
+        BaseUrl = $InventoryBaseUrl
+        PortForwardServiceName = $InventoryPortForwardServiceName
+        ExpectedPublicHost = $ExpectedPublicHost
+        ExpectedPublicScheme = $ExpectedPublicScheme
+        ExpectedPublicPort = $ExpectedPublicPort
+        KubernetesNamespace = $KubernetesNamespace
+        Mode = $internalMode
+        AccessToken = $inventoryToken
+        AcknowledgeSeatConsumption = $perServiceBusinessEnabled
+        CatalogTarget = $CatalogTarget
+        CatalogBaseUrl = $CatalogBaseUrl
+        CatalogPortForwardServiceName = $CatalogPortForwardServiceName
+        RequestsPerMinute = if ($perServiceBusinessEnabled) { [Math]::Min(10, $InventoryRequestsPerMinute) } else { $InventoryRequestsPerMinute }
+    }
+})
+$scripts.Add(@{
+    Name = 'payments'
+    File = 'Invoke-PaymentsTraffic.ps1'
+    Args = @{
+        Target = $PaymentsTarget
+        BaseUrl = $PaymentsBaseUrl
+        PortForwardServiceName = $PaymentsPortForwardServiceName
+        KubernetesNamespace = $KubernetesNamespace
+        Mode = $internalMode
+        AccessToken = $paymentsToken
+        # This is deliberately tied only to the explicit orchestrator switch.
+        AcknowledgeSafeGatewayConfiguration = [bool]$AcknowledgeSafePaymentGateway
+        RequestsPerMinute = if ($perServiceBusinessEnabled) { [Math]::Min(10, $PaymentsRequestsPerMinute) } else { $PaymentsRequestsPerMinute }
+    }
+})
+if ($IncludeGatewaySimulator) {
+    $scripts.Add(@{
         Name = 'payment-gateway-sim'
         File = 'Invoke-PaymentGatewaySimTraffic.ps1'
         Args = @{
             Target = $GatewayTarget
             BaseUrl = $GatewayBaseUrl
             PortForwardServiceName = $GatewayPortForwardServiceName
+            KubernetesNamespace = $KubernetesNamespace
             Mode = $GatewayMode
             RequestsPerMinute = $GatewayRequestsPerMinute
         }
-    }
-)
+    })
+}
 
 $jobs = [System.Collections.Generic.List[object]]::new()
 $summaries = @()
 $jobErrors = @()
 $unexpectedOutput = @()
 $workerFailed = $false
-$aggregate = $null
 
 try {
     foreach ($item in $scripts) {
@@ -174,9 +231,14 @@ try {
     $aggregate = [pscustomobject]@{
         service = 'all-services'
         target = 'mixed'
-        traffic_mode = if ($EnableBusinessTraffic) { 'explicit-business' } else { 'safe-readiness-and-read-only' }
+        traffic_profile = $TrafficProfile
+        traffic_mode = $TrafficProfile
         application_traffic = @($summaries | Where-Object application_traffic).Count -gt 0
-        business_traffic = [bool]$EnableBusinessTraffic
+        business_traffic = $moneyPathEnabled -or $perServiceBusinessEnabled
+        money_path_enabled = $moneyPathEnabled
+        direct_downstream_business_enabled = $perServiceBusinessEnabled
+        combined_side_effects = $TrafficProfile -eq 'CombinedExplicit'
+        gateway_simulator_included = [bool]$IncludeGatewaySimulator
         worker_count = $scripts.Count
         summary_count = $summaries.Count
         worker_errors = $jobErrors.Count
@@ -188,12 +250,11 @@ try {
     $aggregate
 
     if (-not $passed) {
-        throw "One or more traffic workers failed. summaries=$($summaries.Count)/$($scripts.Count), errors=$($jobErrors.Count), unexpectedOutput=$($unexpectedOutput.Count)."
+        throw "One or more traffic workers failed. profile=$TrafficProfile, summaries=$($summaries.Count)/$($scripts.Count), errors=$($jobErrors.Count), unexpectedOutput=$($unexpectedOutput.Count)."
     }
 }
 finally {
     if ($jobs.Count -gt 0) {
-        $jobs | Stop-Job -ErrorAction SilentlyContinue
-        $jobs | Remove-Job -Force -ErrorAction SilentlyContinue
+        Stop-EuroTransitJobs -Jobs $jobs
     }
 }

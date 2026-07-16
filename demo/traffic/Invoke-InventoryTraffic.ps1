@@ -3,6 +3,10 @@ param(
     [ValidateSet('Active', 'Preview')][string]$Target = 'Active',
     [string]$BaseUrl,
     [string]$PortForwardServiceName,
+    [string]$ExpectedPublicHost = 'g02.cpo2026.it',
+    [ValidateSet('http', 'https')][string]$ExpectedPublicScheme = 'https',
+    [ValidateRange(1, 65535)][int]$ExpectedPublicPort = 443,
+    [string]$KubernetesNamespace = 'eurotransit',
     [ValidateSet('Readiness', 'Business')][string]$Mode = 'Readiness',
     [string]$AccessToken,
     [switch]$AcknowledgeSeatConsumption,
@@ -24,7 +28,8 @@ param(
 . (Join-Path $PSScriptRoot 'Common.ps1')
 
 $destination = Resolve-EuroTransitDestination -Service inventory -Target $Target `
-    -BaseUrl $BaseUrl -PortForwardServiceName $PortForwardServiceName
+    -BaseUrl $BaseUrl -PortForwardServiceName $PortForwardServiceName `
+    -KubernetesNamespace $KubernetesNamespace
 
 if ($Mode -eq 'Readiness') {
     Invoke-EuroTransitTraffic -Service inventory -Destination $destination `
@@ -44,14 +49,16 @@ if ($RequestsPerMinute -gt 10) {
 if ([bool]$TrainId -xor [bool]$SeatClass) {
     throw 'Specify both -TrainId and -SeatClass, or neither to select dynamically from Catalog.'
 }
-$token = Get-EuroTransitAccessToken $AccessToken
+$token = Get-EuroTransitAccessToken -Service inventory -AccessToken $AccessToken
 if (-not $token) {
-    throw 'Inventory Business traffic requires -AccessToken or EUROTRANSIT_ACCESS_TOKEN.'
+    throw 'Inventory Business traffic requires -AccessToken, EUROTRANSIT_INVENTORY_ACCESS_TOKEN, or the explicit EUROTRANSIT_ACCESS_TOKEN compatibility fallback.'
 }
 $headers = @{ Authorization = "Bearer $token" }
 $catalogDestination = if (-not $TrainId) {
     Resolve-EuroTransitDestination -Service catalog -Target $CatalogTarget `
-        -BaseUrl $CatalogBaseUrl -PortForwardServiceName $CatalogPortForwardServiceName
+        -BaseUrl $CatalogBaseUrl -PortForwardServiceName $CatalogPortForwardServiceName `
+        -ExpectedPublicHost $ExpectedPublicHost -ExpectedPublicScheme $ExpectedPublicScheme `
+        -ExpectedPublicPort $ExpectedPublicPort -KubernetesNamespace $KubernetesNamespace
 }
 else {
     $null
