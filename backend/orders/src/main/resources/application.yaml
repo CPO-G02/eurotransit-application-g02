@@ -36,7 +36,14 @@ spring:
       group-id: orders-group
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      # Every Stage1-4Consumer takes a raw String and self-parses via
+      # objectMapper.readTree(message) - JsonDeserializer pre-deserializes into
+      # a LinkedHashMap instead, which Spring can't convert to the listener's
+      # String parameter, so every message failed conversion and was never
+      # acknowledged (endless redelivery, saga never advances past Stage 1).
+      # Confirmed live 2026-07-16: MessageConversionException on every
+      # order-placed message since deploy.
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       properties:
         spring.json.trusted.packages: "*"
     producer:
@@ -102,6 +109,8 @@ resilience4j:
         wait-duration: 500ms
         enable-exponential-backoff: true
         exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
       inventory-client:
         max-attempts: 3
         wait-duration: 500ms
