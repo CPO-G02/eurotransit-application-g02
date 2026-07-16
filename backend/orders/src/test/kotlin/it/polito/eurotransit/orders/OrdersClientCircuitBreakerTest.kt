@@ -59,10 +59,20 @@ class OrdersClientCircuitBreakerTest {
     }
 
     private fun inventoryClient(timeout: Duration) =
-        InventoryClient(WebClient.builder(), registry, "http://localhost:${server.port()}", timeout)
+        InventoryClient(
+            WebClient.builder(),
+            "http://localhost:${server.port()}",
+            inventoryTimeout = timeout,
+            circuitBreakerRegistry = registry,
+        )
 
     private fun paymentClient(timeout: Duration) =
-        PaymentClient(WebClient.builder(), registry, "http://localhost:${server.port()}", timeout)
+        PaymentClient(
+            WebClient.builder(),
+            "http://localhost:${server.port()}",
+            paymentsTimeout = timeout,
+            circuitBreakerRegistry = registry,
+        )
 
     @Test
     fun `a hung inventory is recorded as a failure and opens the breaker`() = runBlocking {
