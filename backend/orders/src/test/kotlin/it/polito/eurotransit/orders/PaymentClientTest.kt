@@ -74,6 +74,7 @@ class PaymentClientTest {
             clientId = "orders-service",
             clientSecret = "test-secret",
             scope = "",
+            issuerUri = "https://g02.cpo2026.it/auth/realms/eurotransit",
         )
         val client = PaymentClient(
             WebClient.builder(),
