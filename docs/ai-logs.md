@@ -5,6 +5,58 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-15 21:55
+
+**Agent**
+
+Codex GPT-5
+
+**Task**
+
+Implement the application side of the DoD requirement "Backpressure / load
+shedding: HTTP 429 when overloaded" for Orders.
+
+**Files Modified**
+
+- `backend/orders/src/main/kotlin/.../config/OrdersBackpressureConfig.kt`
+- `backend/orders/src/main/resources/application.yaml`
+- `backend/orders/src/test/kotlin/.../OrdersBackpressureConfigTest.kt`
+- `tools/k6/orders-load-shedding.js`
+- `docs/ai-logs.md`
+
+**Summary**
+
+Added an inbound WebFlux load-shedding filter for `POST /api/v1/orders`. The
+filter is controlled by `app.backpressure.orders.*`, uses a local semaphore, and
+returns `HTTP 429 Too Many Requests` with `Retry-After` when the concurrent
+order-create limit is exhausted. Status reads, Actuator probes, and downstream
+client calls are intentionally outside the filter.
+
+The default limit is `20`, chosen as an initial bound around the existing Orders
+R2DBC pool shape (`max-size: 10`) with small burst headroom. The companion
+configuration-repo change renders the same policy through
+`orders.springApplicationJson` so Argo CD owns the runtime value.
+
+Added a k6 script for authenticated `POST /api/v1/orders` load. It requires
+`AUTH_TOKEN` from the environment and does not fetch or store credentials.
+
+**Validation**
+
+Focused unit tests cover the 429 path and verify non-create order requests bypass
+the filter. Full validation requires running the Orders test suite and then
+observing `429` behavior under controlled live load. A Dockerized k6 runtime was
+pulled and the script was executed without `AUTH_TOKEN`; it correctly failed fast
+instead of using embedded credentials. The authenticated live load run still
+requires an externally supplied Orders-audience token.
+
+**Potential Risks**
+
+The value is a starting threshold, not a tuned capacity limit. It must be adjusted
+from live latency, 429 rate, accepted-order completion, CPU throttling, and DB
+pool saturation evidence.
+
+---
+
 ### 2026-07-15 18:10
 
 **Agent**
@@ -1049,3 +1101,17 @@ Final Retry/CircuitBreaker interaction check for Inventory showed that one logic
 **Confidence**
 
 High — full Orders tests and `check` passed after Docker-backed persistence, mapper, rollback, outbox JSONB, and client resilience coverage.
+
+# 2026-07-16 - Circuit-breaker live-check k6 scripts
+
+Added two k6 scripts for the remaining live resilience checks:
+
+- `tools/k6/orders-payments-circuit-breaker.js` generates authenticated
+  `POST /api/v1/orders` traffic while the Orders -> Payments chaos experiment is
+  active.
+- `tools/k6/payments-gateway-circuit-breaker.js` generates authenticated
+  `POST /api/v1/payments/authorize` traffic, intended to run through a local
+  port-forward to Payments because Payments is not exposed by the public Ingress.
+
+Both scripts require a bearer token supplied outside Git. They intentionally do
+not fetch, embed, or store credentials.
