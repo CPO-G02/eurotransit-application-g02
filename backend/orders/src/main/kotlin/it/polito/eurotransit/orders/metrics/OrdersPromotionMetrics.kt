@@ -8,6 +8,10 @@ import org.springframework.stereotype.Component
 class OrdersPromotionMetrics(registry: MeterRegistry) {
     private val newRequestsAccepted: Counter =
         registry.counter("eurotransit.orders.requests.accepted.new")
+    // Temporary rollout compatibility. Remove after every environment runs an
+    // image that exports requests.accepted.new and the Helm fallback is gone.
+    private val legacyRequestsAccepted: Counter =
+        registry.counter("eurotransit.orders.requests.accepted")
     private val replayedRequestsAccepted: Counter =
         registry.counter("eurotransit.orders.requests.accepted.replayed")
     private val persistenceFailures: Counter =
@@ -19,7 +23,10 @@ class OrdersPromotionMetrics(registry: MeterRegistry) {
     private val outboxPublishFailures: Counter =
         registry.counter("eurotransit.orders.outbox.publish.failures")
 
-    fun newRequestAccepted() = newRequestsAccepted.increment()
+    fun newRequestAccepted() {
+        newRequestsAccepted.increment()
+        legacyRequestsAccepted.increment()
+    }
     fun replayedRequestAccepted() = replayedRequestsAccepted.increment()
     fun persistenceFailure() = persistenceFailures.increment()
     fun outboxCreated() = outboxCreated.increment()

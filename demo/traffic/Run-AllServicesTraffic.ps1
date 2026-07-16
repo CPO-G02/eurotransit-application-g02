@@ -86,6 +86,7 @@ if (($moneyPathEnabled -or $perServiceBusinessEnabled) -and -not $AcknowledgeSaf
 }
 
 $ordersMode = if ($ordersRolloutEnabled) { 'Rollout' } elseif ($moneyPathEnabled) { 'MoneyPath' } else { 'ReadOnly' }
+$effectiveOrdersTarget = if ($ordersRolloutEnabled -and -not $boundParameters.ContainsKey('OrdersTarget')) { 'Canary' } else { $OrdersTarget }
 $internalMode = if ($perServiceBusinessEnabled) { 'Business' } else { 'Readiness' }
 $ordersToken = if ($OrdersAccessToken) { $OrdersAccessToken } else { $AccessToken }
 $inventoryToken = if ($InventoryAccessToken) { $InventoryAccessToken } else { $AccessToken }
@@ -124,7 +125,7 @@ $scripts.Add(@{
     Name = 'orders'
     File = 'Invoke-OrdersTraffic.ps1'
     Args = @{
-        Target = $OrdersTarget
+        Target = $effectiveOrdersTarget
         BaseUrl = $OrdersBaseUrl
         PortForwardServiceName = $OrdersPortForwardServiceName
         ExpectedPublicHost = $ExpectedPublicHost
@@ -141,7 +142,9 @@ $scripts.Add(@{
         TrainId = $OrdersTrainId
         SeatClass = $OrdersSeatClass
         ExpectedOutcome = $OrdersExpectedOutcome
-        RequestsPerMinute = if ($moneyPathEnabled) {
+        RequestsPerMinute = if ($ordersRolloutEnabled -and -not $boundParameters.ContainsKey('OrdersRequestsPerMinute')) {
+            2
+        } elseif ($moneyPathEnabled) {
             [Math]::Min(10, $(if ($boundParameters.ContainsKey('OrdersRequestsPerMinute')) { $OrdersRequestsPerMinute } else { $settings.RequestsPerMinute }))
         } elseif ($boundParameters.ContainsKey('OrdersRequestsPerMinute')) { $OrdersRequestsPerMinute } else { $settings.RequestsPerMinute }
     }

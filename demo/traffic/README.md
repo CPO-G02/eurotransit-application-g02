@@ -151,14 +151,18 @@ Stripe. The script does not inspect or change Payments configuration.
 
 For candidate analysis, `-Profile Rollout` selects the dedicated `Rollout`
 write mode unless `-Mode` is explicitly supplied. It creates fresh orders at a
-default maximum of 10 RPM for the full 25-minute profile, does not generate
+default 2 RPM for the full 25-minute profile (50 orders), does not generate
 idempotent replays, and considers only successful local HTTP handling plus the
 required generated volume. It does not gate on Inventory, Payments, or the
 final saga status. The state-changing safety acknowledgements remain mandatory:
 
 ```powershell
+kubectl port-forward svc/eurotransit-orders-canary 18083:8080 -n eurotransit
+
 ./demo/traffic/Invoke-OrdersTraffic.ps1 `
   -Target Canary `
+  -BaseUrl http://127.0.0.1:18083 `
+  -PortForwardServiceName eurotransit-orders-canary `
   -CatalogTarget Public `
   -Profile Rollout `
   -AcknowledgeMoneyPathSideEffects `
@@ -167,7 +171,7 @@ final saga status. The state-changing safety acknowledgements remain mandatory:
 
 Explicit `-RequestsPerMinute` values are accepted only up to the hard 10 RPM
 MoneyPath/Rollout cap. Explicit duration and `-MaxNewOperations` values override
-the profile-derived operation budget.
+the profile-derived operation budget, including the minimum-volume calculation.
 
 `Run-AllServicesTraffic.ps1 -Profile Rollout` uses this Orders write mode too
 when `-TrafficProfile` is omitted. It therefore requires

@@ -48,25 +48,27 @@ $settings = Resolve-EuroTransitTrafficSettings -Profile $Profile -BoundParameter
 # deliberately lower than the generic rollout profile because every POST starts
 # a real saga. Explicit command-line values continue to win.
 $effectiveMode = if ($Profile -eq 'Rollout' -and -not $boundParameters.ContainsKey('Mode')) { 'Rollout' } else { $Mode }
+$effectiveTarget = if ($effectiveMode -eq 'Rollout' -and -not $boundParameters.ContainsKey('Target')) { 'Canary' } else { $Target }
 if ($Profile -eq 'Rollout' -and -not $boundParameters.ContainsKey('RequestsPerMinute')) {
-    $settings.RequestsPerMinute = 10
+    $settings.RequestsPerMinute = 2
 }
 $plannedDurationSeconds = if ($settings.DurationSeconds -gt 0) {
     $settings.DurationSeconds
 } else {
     $settings.DurationMinutes * 60
 }
-$expectedNewOperations = [Math]::Max(1, [Math]::Floor($plannedDurationSeconds * $settings.RequestsPerMinute / 60.0))
+$scheduledNewOperations = [Math]::Max(1, [Math]::Floor($plannedDurationSeconds * $settings.RequestsPerMinute / 60.0))
 $operationBudget = if ($effectiveMode -eq 'Rollout' -and -not $boundParameters.ContainsKey('MaxNewOperations')) {
-    $expectedNewOperations
+    $scheduledNewOperations
 } else {
     $MaxNewOperations
 }
+$expectedNewOperations = $operationBudget
 $minimumRequiredNewOperations = [Math]::Ceiling(
-    $expectedNewOperations * $settings.MinimumRequestVolumePercentage / 100.0
+    $operationBudget * $settings.MinimumRequestVolumePercentage / 100.0
 )
 
-$destination = Resolve-EuroTransitDestination -Service orders -Target $Target `
+$destination = Resolve-EuroTransitDestination -Service orders -Target $effectiveTarget `
     -BaseUrl $BaseUrl -PortForwardServiceName $PortForwardServiceName `
     -ExpectedPublicHost $ExpectedPublicHost -ExpectedPublicScheme $ExpectedPublicScheme `
     -ExpectedPublicPort $ExpectedPublicPort -KubernetesNamespace $KubernetesNamespace
@@ -266,7 +268,9 @@ try {
         }
         finally {
             if ($operationStopwatch.IsRunning) { $operationStopwatch.Stop() }
-            Start-EuroTransitRateDelay -Deadline $timing.Deadline -BaseDelayMs $baseDelayMs -ElapsedMs $operationStopwatch.Elapsed.TotalMilliseconds
+            if ($accepted -lt $operationBudget) {
+                Start-EuroTransitRateDelay -Deadline $timing.Deadline -BaseDelayMs $baseDelayMs -ElapsedMs $operationStopwatch.Elapsed.TotalMilliseconds
+            }
         }
     }
 }

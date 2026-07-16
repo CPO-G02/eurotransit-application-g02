@@ -20,6 +20,7 @@ class OrdersPromotionMetricsTest {
         metrics.outboxPublishFailure()
 
         assertEquals(1.0, registry.counter("eurotransit.orders.requests.accepted.new").count())
+        assertEquals(1.0, registry.counter("eurotransit.orders.requests.accepted").count())
         assertEquals(1.0, registry.counter("eurotransit.orders.requests.accepted.replayed").count())
         assertEquals(1.0, registry.counter("eurotransit.orders.persistence.failures").count())
         assertEquals(1.0, registry.counter("eurotransit.orders.outbox.created").count())
@@ -37,6 +38,7 @@ class OrdersPromotionMetricsTest {
         val replay = commitMetrics.replaySynchronization()
 
         assertEquals(0.0, registry.counter("eurotransit.orders.requests.accepted.new").count())
+        assertEquals(0.0, registry.counter("eurotransit.orders.requests.accepted").count())
         assertEquals(0.0, registry.counter("eurotransit.orders.outbox.created").count())
         assertEquals(0.0, registry.counter("eurotransit.orders.requests.accepted.replayed").count())
 
@@ -44,6 +46,7 @@ class OrdersPromotionMetricsTest {
         replay.afterCommit().block()
 
         assertEquals(1.0, registry.counter("eurotransit.orders.requests.accepted.new").count())
+        assertEquals(1.0, registry.counter("eurotransit.orders.requests.accepted").count())
         assertEquals(1.0, registry.counter("eurotransit.orders.outbox.created").count())
         assertEquals(1.0, registry.counter("eurotransit.orders.requests.accepted.replayed").count())
     }

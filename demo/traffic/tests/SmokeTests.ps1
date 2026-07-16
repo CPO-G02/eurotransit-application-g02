@@ -305,6 +305,15 @@ try {
     Assert-True ($ordersRollout.new_operations -eq 1 -and $ordersRollout.duplicate_attempts -eq 0) 'Orders Rollout traffic must count one fresh order and no replay.'
     Assert-True ($ordersRollout.request_volume_satisfied -and $ordersRollout.expected_new_operations -eq 1) 'Orders Rollout generated-volume gate failed.'
 
+    $ordersRolloutOverride = & (Join-Path $trafficDirectory 'Invoke-OrdersTraffic.ps1') `
+        -Target Canary -BaseUrl $baseUrl -PortForwardServiceName eurotransit-orders-canary `
+        -CatalogTarget Stable -CatalogBaseUrl $baseUrl `
+        -CatalogPortForwardServiceName eurotransit-catalog -Profile Rollout `
+        -AcknowledgeMoneyPathSideEffects -AcknowledgeSafePaymentGateway `
+        -DurationMinutes 25 -MaxNewOperations 1 -OutputDirectory $outputDirectory
+    Assert-True ($ordersRolloutOverride.passed -and $ordersRolloutOverride.expected_new_operations -eq 1) 'MaxNewOperations did not override the Rollout volume budget.'
+    Assert-True ($ordersRolloutOverride.minimum_required_new_operations -eq 1) 'Minimum volume was not calculated from the effective operation budget.'
+
     $ordersInsufficient = & (Join-Path $trafficDirectory 'Invoke-OrdersTraffic.ps1') `
         -Target Stable -BaseUrl $baseUrl -PortForwardServiceName eurotransit-orders `
         -CatalogTarget Stable -CatalogBaseUrl $baseUrl `
@@ -385,12 +394,15 @@ try {
     $rolloutParameters = New-OrchestratorParameters -BaseUrl $baseUrl -OutputDirectory $outputDirectory
     $rolloutParameters.Profile = 'Rollout'
     $rolloutParameters.DurationSeconds = 2
+    $rolloutParameters.Remove('OrdersTarget')
+    $rolloutParameters.Remove('OrdersRequestsPerMinute')
+    $rolloutParameters.OrdersPortForwardServiceName = 'eurotransit-orders-canary'
     $rolloutParameters.AcknowledgeMoneyPathSideEffects = $true
     $rolloutParameters.AcknowledgeSafePaymentGateway = $true
     $rollout = & $orchestratorPath @rolloutParameters
     $rolloutOrders = @($rollout.services | Where-Object service -eq 'orders')[0]
     Assert-True ($rollout.passed -and $rollout.traffic_profile -eq 'Rollout') 'Default orchestrator Rollout profile failed.'
-    Assert-True ($rolloutOrders.traffic_mode -eq 'rollout-write' -and $rolloutOrders.new_operations -eq 1) 'Orchestrator Rollout did not feed Orders candidate writes.'
+    Assert-True ($rolloutOrders.target -eq 'Canary' -and $rolloutOrders.traffic_mode -eq 'rollout-write' -and $rolloutOrders.new_operations -eq 1) 'Orchestrator Rollout did not feed Orders candidate writes directly.'
 
     Assert-Throws {
         $unsafeMoneyPath = New-OrchestratorParameters -BaseUrl $baseUrl -OutputDirectory $outputDirectory
