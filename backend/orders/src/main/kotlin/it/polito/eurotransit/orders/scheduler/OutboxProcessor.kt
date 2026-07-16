@@ -30,8 +30,7 @@ class OutboxProcessor(
                 kafkaTemplate.send(entry.topic, entry.eventId, payloadMap).get()
 
                 // mark as sent in database
-                val updated = entry.copy(sentAt = LocalDateTime.now())
-                outboxRepo.save(updated)
+                outboxRepo.markSent(requireNotNull(entry.id), LocalDateTime.now())
 
                 logger.info("Published event ${entry.eventId} to topic ${entry.topic}")
             } catch (e: Exception) {
