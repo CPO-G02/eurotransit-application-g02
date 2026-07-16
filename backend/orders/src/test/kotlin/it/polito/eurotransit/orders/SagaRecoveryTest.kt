@@ -35,6 +35,7 @@ class SagaRecoveryTest {
         val payload = """{"order_id": "ord-999", "status": "PENDING"}"""
         
         val pendingEntry = OutboxEntry(
+            id = 1L,
             eventId = eventId,
             topic = "eurotransit.orders",
             payload = payload,
@@ -43,13 +44,14 @@ class SagaRecoveryTest {
         )
 
         whenever(outboxRepo.findPendingMessages(any())).thenReturn(listOf(pendingEntry))
-        
+
         val future = mock<CompletableFuture<SendResult<String, Any>>>()
         whenever(kafkaTemplate.send(any<String>(), any(), any())).thenReturn(future)
+        whenever(outboxRepo.markSent(any(), any())).thenReturn(1)
 
         outboxProcessor.processPendingMessages()
 
         verify(kafkaTemplate, times(1)).send(eq("eurotransit.orders"), eq(eventId), any())
-        verify(outboxRepo, times(1)).save(any())
+        verify(outboxRepo, times(1)).markSent(eq(1L), any())
     }
 }

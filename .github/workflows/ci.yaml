@@ -175,11 +175,36 @@ jobs:
 
             git reset --hard origin/main
 
-            if [ "${{ matrix.service }}" != "notifications" ]; then
-              IMAGE_DIGEST="$IMAGE_DIGEST" yq -i '.${{ matrix.service }}.image.digest = strenv(IMAGE_DIGEST)' deploy/charts/eurotransit/values.yaml
+            # Only pin an immutable digest for a service that is actually
+            # running canary/blueGreen right now. Setting it unconditionally
+            # (the previous behaviour here) reintroduced the exact bug the
+            # canary PR review already fixed once: a "standard" service is
+            # supposed to resolve "latest" via restartedAt, and a stray digest
+            # here makes eurotransit.imageReference pin it anyway. Confirmed
+            # live 2026-07-16 - this path pinned orders while
+            # deploymentStrategies.orders was "standard".
+            service="${{ matrix.service }}"
+            set_digest=false
+            case "$service" in
+              frontend|catalog|orders)
+                strategy=$(yq '.deploymentStrategies.'"$service"' // "standard"' deploy/charts/eurotransit/values.yaml)
+                [ "$strategy" != "standard" ] && set_digest=true
+                ;;
+              inventory|payments)
+                enabled=$(yq '.blueGreen.'"$service"'.enabled // false' deploy/charts/eurotransit/values.yaml)
+                [ "$enabled" = "true" ] && set_digest=true
+                ;;
+              *)
+                # notifications and payment-gateway-sim have no progressive
+                # delivery mode at all - always tag-based.
+                ;;
+            esac
+
+            if [ "$set_digest" = "true" ]; then
+              IMAGE_DIGEST="$IMAGE_DIGEST" yq -i '.'"$service"'.image.digest = strenv(IMAGE_DIGEST)' deploy/charts/eurotransit/values.yaml
             fi
 
-            RESTARTED_AT="$restarted_at" yq -i '.${{ matrix.service }}.restartedAt = strenv(RESTARTED_AT)' deploy/charts/eurotransit/values.yaml
+            RESTARTED_AT="$restarted_at" yq -i '.'"$service"'.restartedAt = strenv(RESTARTED_AT)' deploy/charts/eurotransit/values.yaml
 
             git add deploy/charts/eurotransit/values.yaml
             if git diff --cached --quiet; then
