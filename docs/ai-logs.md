@@ -5,6 +5,230 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-16 13:20
+
+**Agent**
+
+Claude Sonnet 5
+
+**Task**
+
+Chase the Orders→Inventory/Payments 401s and outbox/Kafka bugs through to a
+real end-to-end confirmed order, fixing config as each new layer surfaced.
+
+**Files Modified**
+
+- `platform/keycloak/keycloak-cr.yaml`
+- `platform/observability/kube-prometheus-stack-values.yaml`
+
+**Summary**
+
+`keycloak-cr.yaml`'s committed `hostname.hostname` was a full `https://...`
+URL, which drops `http-relative-path` and breaks the issuer's `/auth` prefix —
+a regression from an earlier live-only fix that was never actually committed
+(sitting in an old, unpopped `git stash`). Reverted to a bare hostname and
+added `hostname-backchannel-dynamic: false` via `additionalOptions`, though
+live testing showed this alone doesn't fix the backchannel issuer scheme (see
+Notes). Also landed the already-verified-live `kubeApiServer: enabled: false`
+and Prometheus memory (340Mi) trim from the same stash.
+
+Separately, live (not git-tracked): recreated the `payments` client and
+`payments-audience` client-scope in the realm via the Admin REST API and
+attached it to `orders-service` — `realm-import.yaml` already specified both
+correctly, but that resource is a one-shot `KeycloakRealmImport` the operator
+only runs once at creation, so a later edit to the file never reconciles into
+an already-imported realm. Also disabled `chaos-mesh`'s ArgoCD `automated`
+sync (live only) and scaled it to 0/0 per explicit request to stop it fighting
+manual scale-downs.
+
+**Verification**
+
+- Decoded real service-account JWTs from both the public and internal token
+  endpoints before/after each change to confirm `iss` and `aud` directly,
+  rather than trusting the operator's reconciliation status.
+- Watched a real order reach `CONFIRMED` end to end after all pieces landed.
+
+**Potential Risks**
+
+- The `payments` client/scope and the chaos-mesh selfHeal disable are live-only
+  changes with no git record. `realm-import.yaml` already matches the realm
+  fix (no action needed there), but `chaos-mesh-application.yaml` still has
+  `selfHeal: true` in git — if that file is ever re-applied, chaos-mesh reverts
+  to fighting manual scaling again.
+- The actual backchannel-issuer-scheme fix ended up living in the application
+  repo (`ServiceTokenProvider` sending `X-Forwarded-*` headers on its own
+  token request), not here — `hostname-backchannel-dynamic: false` alone was
+  verified insufficient live.
+- Keycloak operator still hits the same 409-conflict/retry-exhaustion issue
+  from earlier sessions when reconciling the CR; the `keycloak-cr.yaml` change
+  was applied via direct `kubectl` env patch + operator scaled back to 0, same
+  as the established workaround, not via a clean operator reconcile.
+
+**Confidence**
+
+High for the parts verified against real decoded tokens and a real confirmed
+order. Low for whether the operator would apply `keycloak-cr.yaml` cleanly on
+its own if reconciliation were re-attempted — never actually tested.
+
+**Notes**
+
+Also traced (not fixed here): CI's `ACR_LOGIN_SERVER`/`ACR_USERNAME`/
+`ACR_PASSWORD` GitHub secrets on the application repo were pointing at an
+unrelated personal registry, which is why earlier pushes looked like they
+weren't taking effect on the cluster. User corrected the secrets directly;
+no change needed in this repo.
+
+---
+
+### 2026-07-16 6:00
+
+**Agent**
+
+Claude Sonnet 5
+
+**Task**
+
+Get a real order through the full Orders saga (Inventory → Payments →
+Notifications) end to end, fixing every bug found live along the way.
+
+**Files Modified**
+
+- `backend/orders/src/test/kotlin/.../SagaRecoveryTest.kt`
+- `backend/orders/src/main/kotlin/.../client/ServiceTokenProvider.kt`
+- `backend/orders/src/test/kotlin/.../InventoryClientTest.kt`
+- `backend/orders/src/test/kotlin/.../PaymentClientTest.kt`
+- `backend/notifications/src/main/resources/application.yaml`
+- `backend/notifications/src/main/kotlin/.../config/KafkaConfig.kt` (new)
+- `backend/notifications/src/test/kotlin/.../KafkaConfigTest.kt` (new)
+- `.github/workflows/ci.yaml`
+
+**Summary**
+
+`SagaRecoveryTest` was stale — it still asserted the old buggy
+`OutboxRepository.save()` call and built its `OutboxEntry` fixture with no
+`id`, so once `OutboxProcessor` was fixed to call `markSent(id, ...)` it threw
+`IllegalArgumentException` on the null id and failed CI. Fixed the fixture and
+assertion.
+
+`ServiceTokenProvider`'s in-cluster `client_credentials` token request hit
+Keycloak directly with no reverse proxy in front, so Keycloak minted
+`iss: http://<host>:8080/...` instead of the public `https://.../auth/...`
+issuer every resource server validates against — Inventory and Payments both
+rejected the token as invalid-issuer (401). Fixed by sending
+`X-Forwarded-Proto/Host/Port` on that request ourselves, derived from the
+existing `issuer-uri` config, since Keycloak trusts forwarded headers
+unconditionally (`proxy: xforwarded`).
+
+Notifications' `value-deserializer: JsonDeserializer` had no default type to
+resolve (Orders' outbox doesn't know Notifications' DTO classes), so it
+deserialized every message to a plain `LinkedHashMap` with no converter to
+bridge that into the listener's typed parameter — every `order-confirmed`/
+`order-failed` message was silently dropped after exhausting retries. Fixed by
+switching to `StringDeserializer` + a `StringJacksonJsonMessageConverter` bean
+(Jackson-3-based — this module depends on `tools.jackson.module:
+jackson-module-kotlin`, not classic Jackson 2, which failed first with
+`InvalidDefinitionException` on the Kotlin data classes).
+
+Also fixed `ci.yaml`'s GitOps step: it was setting `image.digest` unconditionally
+for every service except `notifications`, reintroducing the exact canary-vs-
+standard bug already fixed once — pinning `orders` to a digest while
+`deploymentStrategies.orders` was `standard`. Now gated on
+`deploymentStrategies.<service>`/`blueGreen.<service>.enabled`.
+
+**Verification**
+
+- `./gradlew test` (orders, en-US locale) — 45/45 passed.
+- `./gradlew build` (notifications) — both tests passed, including a new
+  `KafkaConfigTest` that reproduces the exact wire shape (raw JSON string in,
+  typed Kotlin data class out) and was run failing-then-passing to prove the
+  fix, not just asserted.
+- Live: placed real orders through the browser after each fix landed;
+  confirmed `ord-97920218` reached `CONFIRMED` and `ord-762da324` produced an
+  actual `Sending confirmation email to ...` log line in Notifications.
+
+**Potential Risks**
+
+- The `X-Forwarded-*` header trust is unauthenticated by design
+  (`proxy: xforwarded`) — fine inside the cluster's trust boundary, but not a
+  pattern to extend to anything reachable from outside it.
+- Three orders placed earlier tonight (`ord-91fad260`, `ord-c8880949`,
+  `ord-9ba1e08b`) are permanently stuck `PENDING`: the pre-fix consumer's
+  default error handler skipped past their Kafka offsets after exhausting
+  retries, so the fixed consumer never sees them again. Left as-is; a fresh
+  order was used to prove the fix instead of manually replaying these.
+- Catalog lists trains across ~July 10–22, but Inventory's seed data only
+  covers 2026-07-10 — any booking for a later date fails with "insufficient
+  seats" regardless of real availability. Not touched this session; flagged
+  as a separate pre-existing bug.
+
+**Confidence**
+
+High — every fix was verified against the actual failure mode (a real 401, a
+real dropped Kafka message, a real CI failure) before and after, not just
+inferred from reading the code.
+
+**Notes**
+
+The registry mismatch that made the first two rounds of this fix look like
+they weren't taking effect was actually a wrong `ACR_LOGIN_SERVER`/
+`ACR_USERNAME`/`ACR_PASSWORD` GitHub secret pointing at an unrelated personal
+registry — not a bug in this repo's code or workflow. User corrected the
+secrets directly in GitHub; no repo change was needed for that part.
+
+---
+
+### 2026-07-15 21:55
+
+**Agent**
+
+Codex GPT-5
+
+**Task**
+
+Implement the application side of the DoD requirement "Backpressure / load
+shedding: HTTP 429 when overloaded" for Orders.
+
+**Files Modified**
+
+- `backend/orders/src/main/kotlin/.../config/OrdersBackpressureConfig.kt`
+- `backend/orders/src/main/resources/application.yaml`
+- `backend/orders/src/test/kotlin/.../OrdersBackpressureConfigTest.kt`
+- `tools/k6/orders-load-shedding.js`
+- `docs/ai-logs.md`
+
+**Summary**
+
+Added an inbound WebFlux load-shedding filter for `POST /api/v1/orders`. The
+filter is controlled by `app.backpressure.orders.*`, uses a local semaphore, and
+returns `HTTP 429 Too Many Requests` with `Retry-After` when the concurrent
+order-create limit is exhausted. Status reads, Actuator probes, and downstream
+client calls are intentionally outside the filter.
+
+The default limit is `20`, chosen as an initial bound around the existing Orders
+R2DBC pool shape (`max-size: 10`) with small burst headroom. The companion
+configuration-repo change renders the same policy through
+`orders.springApplicationJson` so Argo CD owns the runtime value.
+
+Added a k6 script for authenticated `POST /api/v1/orders` load. It requires
+`AUTH_TOKEN` from the environment and does not fetch or store credentials.
+
+**Validation**
+
+Focused unit tests cover the 429 path and verify non-create order requests bypass
+the filter. Full validation requires running the Orders test suite and then
+observing `429` behavior under controlled live load. A Dockerized k6 runtime was
+pulled and the script was executed without `AUTH_TOKEN`; it correctly failed fast
+instead of using embedded credentials. The authenticated live load run still
+requires an externally supplied Orders-audience token.
+
+**Potential Risks**
+
+The value is a starting threshold, not a tuned capacity limit. It must be adjusted
+from live latency, 429 rate, accepted-order completion, CPU throttling, and DB
+pool saturation evidence.
+
+---
+
 ### 2026-07-15 18:10
 
 **Agent**
@@ -1049,3 +1273,17 @@ Final Retry/CircuitBreaker interaction check for Inventory showed that one logic
 **Confidence**
 
 High — full Orders tests and `check` passed after Docker-backed persistence, mapper, rollback, outbox JSONB, and client resilience coverage.
+
+# 2026-07-16 - Circuit-breaker live-check k6 scripts
+
+Added two k6 scripts for the remaining live resilience checks:
+
+- `tools/k6/orders-payments-circuit-breaker.js` generates authenticated
+  `POST /api/v1/orders` traffic while the Orders -> Payments chaos experiment is
+  active.
+- `tools/k6/payments-gateway-circuit-breaker.js` generates authenticated
+  `POST /api/v1/payments/authorize` traffic, intended to run through a local
+  port-forward to Payments because Payments is not exposed by the public Ingress.
+
+Both scripts require a bearer token supplied outside Git. They intentionally do
+not fetch, embed, or store credentials.

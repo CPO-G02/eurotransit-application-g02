@@ -83,6 +83,11 @@ app:
       client-id: ${ORDERS_SERVICE_CLIENT_ID:orders-service}
       client-secret: ${ORDERS_SERVICE_CLIENT_SECRET:}
       scope: ${ORDERS_SERVICE_TOKEN_SCOPE:}
+  backpressure:
+    orders:
+      enabled: ${ORDERS_BACKPRESSURE_ENABLED:true}
+      max-concurrent-requests: ${ORDERS_BACKPRESSURE_MAX_CONCURRENT_REQUESTS:20}
+      retry-after-seconds: ${ORDERS_BACKPRESSURE_RETRY_AFTER_SECONDS:1}
 
 # circuit breaker for sync calls
 resilience4j:
