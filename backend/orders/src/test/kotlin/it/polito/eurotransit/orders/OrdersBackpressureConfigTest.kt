@@ -50,6 +50,35 @@ class OrdersBackpressureConfigTest {
     }
 
     @Test
+    fun `successful order creation requests release permits`() {
+        val filter = config.ordersLoadSheddingFilter(
+            enabled = true,
+            maxConcurrentRequests = 1,
+            retryAfterSeconds = 1,
+            meterRegistry = meterRegistry
+        )
+
+        repeat(25) {
+            val exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/v1/orders").build()
+            )
+
+            filter.filter(exchange, WebFilterChain { currentExchange ->
+                currentExchange.response.statusCode = HttpStatus.ACCEPTED
+                currentExchange.response.setComplete()
+            }).block()
+
+            assertEquals(HttpStatus.ACCEPTED, exchange.response.statusCode)
+            assertNull(exchange.response.headers.getFirst(HttpHeaders.RETRY_AFTER))
+        }
+
+        assertEquals(
+            0.0,
+            meterRegistry.counter("orders.backpressure.rejected", "route", "POST /api/v1/orders").count()
+        )
+    }
+
+    @Test
     fun `non order creation requests bypass load shedding filter`() {
         val filter = config.ordersLoadSheddingFilter(
             enabled = true,

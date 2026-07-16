@@ -6,7 +6,7 @@ const baseUrl = (__ENV.BASE_URL || 'https://g02.cpo2026.it').replace(/\/$/, '');
 const token = __ENV.AUTH_TOKEN;
 const vus = Number(__ENV.VUS || '40');
 const duration = __ENV.DURATION || '2m';
-const trainId = __ENV.TRAIN_ID || 'T-100';
+const trainId = __ENV.TRAIN_ID || 'TR-MIL-GEN-20260710-1616';
 const seatClass = __ENV.SEAT_CLASS || 'standard';
 const quantity = Number(__ENV.QUANTITY || '1');
 const amount = Number(__ENV.AMOUNT || '49.90');
@@ -31,6 +31,9 @@ export const options = {
     http_req_duration: ['p(95)<1000'],
     order_create_unexpected_status: ['rate<0.01'],
     order_create_5xx: ['count==0'],
+    // Guards the inverse failure: every threshold above is also satisfied by a
+    // run that sheds or fails 100% of requests.
+    order_create_202: ['count>0', 'rate>1'],
   },
 };
 
