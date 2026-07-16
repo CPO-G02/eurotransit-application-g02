@@ -2,6 +2,7 @@ package it.polito.eurotransit.orders.scheduler
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import it.polito.eurotransit.orders.repositories.OutboxRepository
+import it.polito.eurotransit.orders.metrics.OrdersPromotionMetrics
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
@@ -12,7 +13,8 @@ import java.time.LocalDateTime
 class OutboxProcessor(
     private val outboxRepo: OutboxRepository,
     private val kafkaTemplate: KafkaTemplate<String, Any>,
-    private val objectMapper: ObjectMapper
+    private val objectMapper: ObjectMapper,
+    private val promotionMetrics: OrdersPromotionMetrics
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
@@ -30,11 +32,11 @@ class OutboxProcessor(
                 kafkaTemplate.send(entry.topic, entry.eventId, payloadMap).get()
 
                 // mark as sent in database
-                val updated = entry.copy(sentAt = LocalDateTime.now())
-                outboxRepo.save(updated)
+                outboxRepo.markSent(requireNotNull(entry.id), LocalDateTime.now())
 
                 logger.info("Published event ${entry.eventId} to topic ${entry.topic}")
             } catch (e: Exception) {
+                promotionMetrics.outboxPublishFailure()
                 logger.error("Failed to publish outbox event ${entry.eventId}: ${e.message}")
                 throw e
             }

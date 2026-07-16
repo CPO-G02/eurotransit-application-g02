@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import it.polito.eurotransit.orders.repositories.OutboxRepository
 import it.polito.eurotransit.orders.entities.OutboxEntry
 import it.polito.eurotransit.orders.scheduler.OutboxProcessor
+import it.polito.eurotransit.orders.metrics.OrdersPromotionMetrics
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -26,7 +28,12 @@ class SagaRecoveryTest {
         outboxRepo = mock()
         kafkaTemplate = mock()
         
-        outboxProcessor = OutboxProcessor(outboxRepo, kafkaTemplate, objectMapper)
+        outboxProcessor = OutboxProcessor(
+            outboxRepo,
+            kafkaTemplate,
+            objectMapper,
+            OrdersPromotionMetrics(SimpleMeterRegistry())
+        )
     }
 
     @Test
@@ -35,6 +42,7 @@ class SagaRecoveryTest {
         val payload = """{"order_id": "ord-999", "status": "PENDING"}"""
         
         val pendingEntry = OutboxEntry(
+            id = 1L,
             eventId = eventId,
             topic = "eurotransit.orders",
             payload = payload,
@@ -43,13 +51,14 @@ class SagaRecoveryTest {
         )
 
         whenever(outboxRepo.findPendingMessages(any())).thenReturn(listOf(pendingEntry))
-        
+
         val future = mock<CompletableFuture<SendResult<String, Any>>>()
         whenever(kafkaTemplate.send(any<String>(), any(), any())).thenReturn(future)
+        whenever(outboxRepo.markSent(any(), any())).thenReturn(1)
 
         outboxProcessor.processPendingMessages()
 
         verify(kafkaTemplate, times(1)).send(eq("eurotransit.orders"), eq(eventId), any())
-        verify(outboxRepo, times(1)).save(any())
+        verify(outboxRepo, times(1)).markSent(eq(1L), any())
     }
 }

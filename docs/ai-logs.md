@@ -5,6 +5,308 @@ application repo, as required by `ai-guidelines.md` §16. Newest entries first.
 
 ---
 
+### 2026-07-16 13:20
+
+**Agent**
+
+Claude Sonnet 5
+
+**Task**
+
+Chase the Orders→Inventory/Payments 401s and outbox/Kafka bugs through to a
+real end-to-end confirmed order, fixing config as each new layer surfaced.
+
+**Files Modified**
+
+- `platform/keycloak/keycloak-cr.yaml`
+- `platform/observability/kube-prometheus-stack-values.yaml`
+
+**Summary**
+
+`keycloak-cr.yaml`'s committed `hostname.hostname` was a full `https://...`
+URL, which drops `http-relative-path` and breaks the issuer's `/auth` prefix —
+a regression from an earlier live-only fix that was never actually committed
+(sitting in an old, unpopped `git stash`). Reverted to a bare hostname and
+added `hostname-backchannel-dynamic: false` via `additionalOptions`, though
+live testing showed this alone doesn't fix the backchannel issuer scheme (see
+Notes). Also landed the already-verified-live `kubeApiServer: enabled: false`
+and Prometheus memory (340Mi) trim from the same stash.
+
+Separately, live (not git-tracked): recreated the `payments` client and
+`payments-audience` client-scope in the realm via the Admin REST API and
+attached it to `orders-service` — `realm-import.yaml` already specified both
+correctly, but that resource is a one-shot `KeycloakRealmImport` the operator
+only runs once at creation, so a later edit to the file never reconciles into
+an already-imported realm. Also disabled `chaos-mesh`'s ArgoCD `automated`
+sync (live only) and scaled it to 0/0 per explicit request to stop it fighting
+manual scale-downs.
+
+**Verification**
+
+- Decoded real service-account JWTs from both the public and internal token
+  endpoints before/after each change to confirm `iss` and `aud` directly,
+  rather than trusting the operator's reconciliation status.
+- Watched a real order reach `CONFIRMED` end to end after all pieces landed.
+
+**Potential Risks**
+
+- The `payments` client/scope and the chaos-mesh selfHeal disable are live-only
+  changes with no git record. `realm-import.yaml` already matches the realm
+  fix (no action needed there), but `chaos-mesh-application.yaml` still has
+  `selfHeal: true` in git — if that file is ever re-applied, chaos-mesh reverts
+  to fighting manual scaling again.
+- The actual backchannel-issuer-scheme fix ended up living in the application
+  repo (`ServiceTokenProvider` sending `X-Forwarded-*` headers on its own
+  token request), not here — `hostname-backchannel-dynamic: false` alone was
+  verified insufficient live.
+- Keycloak operator still hits the same 409-conflict/retry-exhaustion issue
+  from earlier sessions when reconciling the CR; the `keycloak-cr.yaml` change
+  was applied via direct `kubectl` env patch + operator scaled back to 0, same
+  as the established workaround, not via a clean operator reconcile.
+
+**Confidence**
+
+High for the parts verified against real decoded tokens and a real confirmed
+order. Low for whether the operator would apply `keycloak-cr.yaml` cleanly on
+its own if reconciliation were re-attempted — never actually tested.
+
+**Notes**
+
+Also traced (not fixed here): CI's `ACR_LOGIN_SERVER`/`ACR_USERNAME`/
+`ACR_PASSWORD` GitHub secrets on the application repo were pointing at an
+unrelated personal registry, which is why earlier pushes looked like they
+weren't taking effect on the cluster. User corrected the secrets directly;
+no change needed in this repo.
+
+---
+
+### 2026-07-16 6:00
+
+**Agent**
+
+Claude Sonnet 5
+
+**Task**
+
+Get a real order through the full Orders saga (Inventory → Payments →
+Notifications) end to end, fixing every bug found live along the way.
+
+**Files Modified**
+
+- `backend/orders/src/test/kotlin/.../SagaRecoveryTest.kt`
+- `backend/orders/src/main/kotlin/.../client/ServiceTokenProvider.kt`
+- `backend/orders/src/test/kotlin/.../InventoryClientTest.kt`
+- `backend/orders/src/test/kotlin/.../PaymentClientTest.kt`
+- `backend/notifications/src/main/resources/application.yaml`
+- `backend/notifications/src/main/kotlin/.../config/KafkaConfig.kt` (new)
+- `backend/notifications/src/test/kotlin/.../KafkaConfigTest.kt` (new)
+- `.github/workflows/ci.yaml`
+
+**Summary**
+
+`SagaRecoveryTest` was stale — it still asserted the old buggy
+`OutboxRepository.save()` call and built its `OutboxEntry` fixture with no
+`id`, so once `OutboxProcessor` was fixed to call `markSent(id, ...)` it threw
+`IllegalArgumentException` on the null id and failed CI. Fixed the fixture and
+assertion.
+
+`ServiceTokenProvider`'s in-cluster `client_credentials` token request hit
+Keycloak directly with no reverse proxy in front, so Keycloak minted
+`iss: http://<host>:8080/...` instead of the public `https://.../auth/...`
+issuer every resource server validates against — Inventory and Payments both
+rejected the token as invalid-issuer (401). Fixed by sending
+`X-Forwarded-Proto/Host/Port` on that request ourselves, derived from the
+existing `issuer-uri` config, since Keycloak trusts forwarded headers
+unconditionally (`proxy: xforwarded`).
+
+Notifications' `value-deserializer: JsonDeserializer` had no default type to
+resolve (Orders' outbox doesn't know Notifications' DTO classes), so it
+deserialized every message to a plain `LinkedHashMap` with no converter to
+bridge that into the listener's typed parameter — every `order-confirmed`/
+`order-failed` message was silently dropped after exhausting retries. Fixed by
+switching to `StringDeserializer` + a `StringJacksonJsonMessageConverter` bean
+(Jackson-3-based — this module depends on `tools.jackson.module:
+jackson-module-kotlin`, not classic Jackson 2, which failed first with
+`InvalidDefinitionException` on the Kotlin data classes).
+
+Also fixed `ci.yaml`'s GitOps step: it was setting `image.digest` unconditionally
+for every service except `notifications`, reintroducing the exact canary-vs-
+standard bug already fixed once — pinning `orders` to a digest while
+`deploymentStrategies.orders` was `standard`. Now gated on
+`deploymentStrategies.<service>`/`blueGreen.<service>.enabled`.
+
+**Verification**
+
+- `./gradlew test` (orders, en-US locale) — 45/45 passed.
+- `./gradlew build` (notifications) — both tests passed, including a new
+  `KafkaConfigTest` that reproduces the exact wire shape (raw JSON string in,
+  typed Kotlin data class out) and was run failing-then-passing to prove the
+  fix, not just asserted.
+- Live: placed real orders through the browser after each fix landed;
+  confirmed `ord-97920218` reached `CONFIRMED` and `ord-762da324` produced an
+  actual `Sending confirmation email to ...` log line in Notifications.
+
+**Potential Risks**
+
+- The `X-Forwarded-*` header trust is unauthenticated by design
+  (`proxy: xforwarded`) — fine inside the cluster's trust boundary, but not a
+  pattern to extend to anything reachable from outside it.
+- Three orders placed earlier tonight (`ord-91fad260`, `ord-c8880949`,
+  `ord-9ba1e08b`) are permanently stuck `PENDING`: the pre-fix consumer's
+  default error handler skipped past their Kafka offsets after exhausting
+  retries, so the fixed consumer never sees them again. Left as-is; a fresh
+  order was used to prove the fix instead of manually replaying these.
+- Catalog lists trains across ~July 10–22, but Inventory's seed data only
+  covers 2026-07-10 — any booking for a later date fails with "insufficient
+  seats" regardless of real availability. Not touched this session; flagged
+  as a separate pre-existing bug.
+
+**Confidence**
+
+High — every fix was verified against the actual failure mode (a real 401, a
+real dropped Kafka message, a real CI failure) before and after, not just
+inferred from reading the code.
+
+**Notes**
+
+The registry mismatch that made the first two rounds of this fix look like
+they weren't taking effect was actually a wrong `ACR_LOGIN_SERVER`/
+`ACR_USERNAME`/`ACR_PASSWORD` GitHub secret pointing at an unrelated personal
+registry — not a bug in this repo's code or workflow. User corrected the
+secrets directly in GitHub; no repo change was needed for that part.
+
+---
+
+### 2026-07-15 21:55
+
+**Agent**
+
+Codex GPT-5
+
+**Task**
+
+Implement the application side of the DoD requirement "Backpressure / load
+shedding: HTTP 429 when overloaded" for Orders.
+
+**Files Modified**
+
+- `backend/orders/src/main/kotlin/.../config/OrdersBackpressureConfig.kt`
+- `backend/orders/src/main/resources/application.yaml`
+- `backend/orders/src/test/kotlin/.../OrdersBackpressureConfigTest.kt`
+- `tools/k6/orders-load-shedding.js`
+- `docs/ai-logs.md`
+
+**Summary**
+
+Added an inbound WebFlux load-shedding filter for `POST /api/v1/orders`. The
+filter is controlled by `app.backpressure.orders.*`, uses a local semaphore, and
+returns `HTTP 429 Too Many Requests` with `Retry-After` when the concurrent
+order-create limit is exhausted. Status reads, Actuator probes, and downstream
+client calls are intentionally outside the filter.
+
+The default limit is `20`, chosen as an initial bound around the existing Orders
+R2DBC pool shape (`max-size: 10`) with small burst headroom. The companion
+configuration-repo change renders the same policy through
+`orders.springApplicationJson` so Argo CD owns the runtime value.
+
+Added a k6 script for authenticated `POST /api/v1/orders` load. It requires
+`AUTH_TOKEN` from the environment and does not fetch or store credentials.
+
+**Validation**
+
+Focused unit tests cover the 429 path and verify non-create order requests bypass
+the filter. Full validation requires running the Orders test suite and then
+observing `429` behavior under controlled live load. A Dockerized k6 runtime was
+pulled and the script was executed without `AUTH_TOKEN`; it correctly failed fast
+instead of using embedded credentials. The authenticated live load run still
+requires an externally supplied Orders-audience token.
+
+**Potential Risks**
+
+The value is a starting threshold, not a tuned capacity limit. It must be adjusted
+from live latency, 429 rate, accepted-order completion, CPU throttling, and DB
+pool saturation evidence.
+
+---
+
+### 2026-07-15 18:10
+
+**Agent**
+
+Claude Opus 4.8
+
+**Task**
+
+Fix the Orders downstream resilience gap exposed by config PR #22's chaos review:
+`InventoryClient` and `PaymentClient` had `@CircuitBreaker` but no HTTP response
+timeout, so a hung/partitioned downstream left the coroutine suspended forever
+and the breaker never recorded an outcome — it could never open.
+
+**Files Modified**
+
+- `backend/orders/src/main/kotlin/.../client/InventoryClient.kt`
+- `backend/orders/src/main/kotlin/.../client/PaymentClient.kt`
+- `backend/orders/src/main/kotlin/.../config/WebClientConfig.kt`
+- `backend/orders/src/main/resources/application.yaml`
+- `backend/orders/src/test/kotlin/.../InventoryClientTest.kt`
+- `backend/orders/src/test/kotlin/.../PaymentClientTest.kt`
+- `backend/orders/src/test/kotlin/.../OrdersClientCircuitBreakerTest.kt` (new)
+
+**Summary**
+
+Added a Reactor Netty `responseTimeout` to both WebClients (inventory 2s,
+payments 6s — the latter exceeds Payments' own 5s gateway timeout) fed by new
+`app.inventory.timeout` / `app.payments.timeout` keys. Removed the inert
+`resilience4j.timelimiter` block (no `@TimeLimiter` ever wired it) and added
+`minimum-number-of-calls: 5` to both circuit-breaker instances.
+
+Switched both clients from the `@CircuitBreaker` annotation to the **programmatic**
+`circuitBreakerRegistry.circuitBreaker(name).executeSuspendFunction { ... }` used
+by payments' `HttpPaymentGateway`. Discovered while designing the fix that the
+annotation was completely inert: no `aspectjweaver` on the runtime classpath, and
+even with it the resilience4j 2.2.0 aspect records success the moment a suspend
+function suspends. Instance names (`inventory-client`, `payments-client`) are
+unchanged, so the yaml/GitOps config still binds.
+
+Also fixed the Orders→Payments 402 handling (mistake-log entry #4): a genuine
+card decline is now caught inside the breaker block, its real `reason` propagated,
+and counted as a successful call — so a burst of declines can no longer trip the
+breaker. The `WebClientConfig` builder bean is now prototype-scoped (it was a
+mutated singleton shared by both clients).
+
+**Validation**
+
+- `./gradlew clean test` — full Orders suite green (17 tests, 0 failures).
+- New `OrdersClientCircuitBreakerTest`: a hung downstream is recorded as a failure
+  and opens the breaker after 5 calls (`numberOfFailedCalls == 5`), the 6th is
+  short-circuited (`CallNotPermittedException`); a 402 keeps the breaker CLOSED
+  (`numberOfFailedCalls == 0`) with the real reason. This test fails against the
+  old annotation approach, which is the proof the programmatic switch was needed.
+
+**Potential Risks**
+
+- Behavior change now that the breaker+fallback are actually active: a Payments
+  503/timeout now returns DECLINED → payment-failed (compensation) instead of
+  propagating an exception to Stage 2. This is what architecture-design.md §2
+  prescribes ("fallback = treat as declined"); the old path was the non-compliant
+  one — but it is a real runtime change to call out on deploy.
+- `resilience4j.retry` (bounded retry + jitter, wanted by the architecture on
+  these edges) is still inert — out of scope here, a tracked follow-up.
+
+**Confidence**
+
+High for the timeout + programmatic-breaker fix and its tests. Medium on the
+retry gap remaining, which is deliberately deferred.
+
+**Notes**
+
+Companion config PR removes the mirrored inert `timelimiter` block from
+`orders.springApplicationJson` and adds the two `app.*.timeout` keys. Also
+surfaced (out of scope): the four `kafka/Stage*ConsumerTest` classes compile but
+are never discovered/run by Gradle — pre-existing, identical to `dev`.
+
+---
+
 ### 2026-07-14 19:30
 
 **Agent**
@@ -149,218 +451,6 @@ prevents a double release.
 No architecture, contract, Kafka topic or API change. Both new tables are
 specified in contract §3.2 and already listed for Inventory in
 architecture-design.md §2, so no §19 escalation was required. No new dependencies.
-
----
-
-### 2026-07-15 15:34
-
-**Agent**
-
-Claude Sonnet 5 via Claude Code
-
-**Task**
-
-Add the Micrometer instrumentation SLOs §4.1 (latency to CONFIRMED) and
-§4.3 (pipeline completion within 30s) need, which was the reason both were
-left unimplemented in the config repo's earlier SLI/burn-rate work - see
-that repo's `ai-logs.md` for the full context.
-
-**Files Modified**
-
-- backend/orders/.../metrics/OrderSloMetrics.kt (new)
-- backend/orders/.../scheduler/StalePendingOrdersMonitor.kt (new)
-- backend/orders/.../kafka/Stage3Consumer.kt
-- backend/orders/.../repositories/Repositories.kt
-- backend/orders/.../OrdersApplication.kt
-- backend/orders/src/test/kotlin/.../Stage3ConsumerTest.kt
-- docs/ai-logs.md (this entry)
-
-**Summary**
-
-Added a Micrometer `Timer` (`orders.confirmation.latency`) recorded in
-`Stage3Consumer` when an order reaches CONFIRMED, using both
-`publishPercentileHistogram()` and an exact `serviceLevelObjectives
-(Duration.ofMillis(800))` bucket - the latter so the §4.1 SLI can be a
-plain ratio (matching §4.2's pattern) instead of comparing a percentile
-point-estimate against a threshold. Added a Gauge
-(`orders.pending.stale.count`) for §4.3, populated by a new scheduled
-component (`StalePendingOrdersMonitor`) polling a new repository query
-(`countByStatusAndCreatedAtBefore`) every 5s - the same polling pattern
-`OutboxRelay` already used, since "orders stuck past budget right now" is a
-point-in-time DB fact, not something derivable from an event counter.
-
-Found a real, separate, previously-undiscovered bug while wiring the
-scheduled poller: **`@EnableScheduling` was missing from `OrdersApplication`
-entirely.** Spring Boot does not auto-register the `@Scheduled` annotation
-processor without it, and doesn't warn when it's missing - every
-`@Scheduled` method, including the pre-existing `OutboxRelay` poller that
-this whole session's saga-repair work depends on, has likely never actually
-run. Added it. Could not fully confirm the outbox-relay side was affected in
-practice (the `outbox` table is currently empty - no order has completed
-the full flow yet, blocked by the already-documented persistence/topic-name
-bugs), but the missing annotation itself is a certain fact, not an
-inference, and the consequence follows directly from well-established
-Spring behavior.
-
-Also hit and resolved a confusing false lead mid-session: a Docker rebuild
-after editing `OrderSloMetrics.kt` (adding `serviceLevelObjectives`)
-produced an image with a byte-for-byte identical digest to the pre-edit
-build, despite `--no-cache`. Extracting and inspecting the compiled
-`.class` file directly confirmed the new code was genuinely absent from
-that image - not just a stale local cache lie. Root cause not fully
-diagnosed (possibly Docker Desktop-level build-context caching, not
-resolved by `--no-cache` on `RUN` alone). Fixed pragmatically: flushed all
-local images and build cache (`docker rmi` + `docker builder prune -af`),
-rebuilt fully fresh, and - this time - verified the fix was actually present
-in the extracted class file **before** pushing, not after. Confirmed via
-the live cluster afterward: correct digest running, exact `le="0.8"`
-histogram bucket present in `/actuator/prometheus`.
-
-**Potential Risks**
-
-- Real end-to-end verification (a genuine order reaching CONFIRMED with a
-  measured latency) is still blocked by the already-documented saga bugs
-  (persistence no-op, bad topic names, Payments audience gap) - the new
-  metrics are confirmed correctly *registered*, not confirmed correct under
-  real load, since no order can reach CONFIRMED yet.
-- The Docker stale-digest incident's root cause is unresolved; if it
-  recurs, the fix (flush + verify class contents before pushing) is
-  reproducible but treats the symptom, not the cause.
-
-**Confidence**
-
-High on what's directly verified (compilation, `@EnableScheduling` gap via
-direct grep, both new metrics appearing correctly in a live scrape after
-deploying a class-content-verified image). Medium on real-world behavior
-under actual saga traffic, which isn't possible to test yet.
-
----
-
-### 2026-07-15 02:05
-
-**Agent**
-
-Claude Sonnet 5 via Claude Code
-
-**Task**
-
-Support building the config repo's per-service RED dashboard (see that
-repo's `ai-logs.md`) by getting real Prometheus scrape data flowing for
-every backend service.
-
-**Files Modified**
-
-- backend/orders/build.gradle.kts
-- backend/notifications/build.gradle.kts
-- docs/ai-logs.md (this entry)
-
-**Summary**
-
-While validating the RED dashboard's queries against live Prometheus,
-found `orders` and `notifications` both returning 404 on
-`/actuator/prometheus` specifically (health/info endpoints worked fine) -
-Prometheus's scrape targets showed both as `down` with that exact error.
-Root cause: both were missing the `io.micrometer:micrometer-registry-
-prometheus` runtime dependency. `spring-boot-starter-actuator` alone
-doesn't register the Prometheus-format endpoint; that's a separate artifact.
-`catalog` and `payments` already had it (confirmed by diffing all four
-`build.gradle.kts` files); only these two were missing it. `application.yaml`
-already correctly listed `prometheus` in `management.endpoints.web.exposure.
-include` for both - the dependency was the only actual gap.
-
-Added `runtimeOnly("io.micrometer:micrometer-registry-prometheus")` to both,
-rebuilt, pushed, redeployed. Confirmed fixed: both scrape targets show `up`,
-and `http_server_requests_seconds_count` now populates correctly for both
-(verified via a live probe request and a real `POST /api/v1/orders` 401).
-
-**Potential Risks**
-
-- Manual build/push/deploy again (same as all prior sessions - these two
-  services' CI still isn't wired up on this branch).
-
-**Confidence**
-
-High - directly reproduced the 404 via Prometheus's own target-health API
-before the fix, and directly confirmed `up` + real metric samples after.
-
----
-
-### 2026-07-14 16:26
-
-**Agent**
-
-Claude Sonnet 5 via Claude Code
-
-**Task**
-
-Add `GET /api/v1/orders` (list the authenticated user's own orders, for the
-"My Trips" page) and get the whole booking flow actually working end-to-end
-on the unmerged `frontend` branch, which previously loaded but did nothing
-functional.
-
-**Files Modified**
-
-- backend/orders/.../controllers/OrderController.kt, repositories/Repositories.kt,
-  service/OrderService.kt, service/OrderServiceImpl.kt
-- frontend/src/components/{Catalog,Checkout,MyTrips}.tsx, types/eurotransit.ts,
-  keycloak.ts, App.tsx, nginx.conf
-- frontend/public/silent-check-sso.html (new)
-- docs/ai-logs.md (this entry)
-
-**Summary**
-
-Added the list endpoint (filters by JWT subject, reuses `OrderStatusResponse`).
-Rewrote `MyTrips.tsx` to match that real response shape instead of a fabricated
-one (no `ticket_id`/`origin`/`upcoming`-`completed` fields that don't exist).
-
-Found and fixed several real, independent bugs blocking the booking flow
-end-to-end: `Catalog.tsx` crashed on every load (`seatClasses`/`seatClass`
-camelCase vs the API's actual `seat_classes`/`class` snake_case - a genuine
-contract mismatch, not a typo); `Checkout.tsx`'s POST `/orders` payload didn't
-match `OrderRequest` at all (wrong field names, two required fields never
-sent); `keycloak.ts` pointed at realm `eurotransit-realm`/client
-`eurotransit-frontend`, neither of which exist (`eurotransit`/`frontend` do) -
-login was 404ing at the OIDC layer this entire time. Also fixed a real Safari-
-surfacing bug: `onLoad: 'check-sso'` had no `silentCheckSsoRedirectUri`, so
-every fresh page load did a full top-level redirect to Keycloak and back
-instead of a silent iframe check - looked exactly like an infinite loading
-spinner. Added `public/silent-check-sso.html` and wired it in; confirmed fixed
-in Chrome, Safari still reported broken and needs further investigation
-(suspected `SameSite` cookie behavior on Keycloak's session cookie).
-
-Deeper root cause found for a persistent 401 on order creation: Keycloak's
-realm-import is create-only (confirmed via its own job log: `Realm
-'eurotransit' already exists. Import skipped`) - `orders`/`inventory`/
-`orders-service` clients and the `orders-audience`/`inventory-audience`
-client-scopes had been in git for a while but never actually existed in the
-live realm. Created all of it directly via the Admin API (see config repo's
-log for detail) since the file-based import can't apply updates to an
-existing realm.
-
-Separately confirmed (not fixed - already documented as a known TODO in
-`backend/payments/CLAUDE.md`): Orders→Payments still 401s regardless, since
-the `orders-service` token has no `payments` audience and the service-token
-feature is disabled by default. Out of scope for this session.
-
-Manually built/pushed/deployed `frontend` and `orders` images directly to ACR
-several times (branch isn't merged, CI doesn't cover it) - hit and fixed an
-arm64/amd64 mismatch (`--platform linux/amd64` required when building on
-Apple Silicon for these amd64 nodes).
-
-**Potential Risks**
-
-- Safari still broken for reasons not yet identified.
-- Payments audience/service-token wiring still incomplete by design (see above).
-- All these image pushes were manual, not through `ci.yaml` - will be
-  superseded whenever `frontend` branch's own CI job gets added and this
-  branch is merged.
-
-**Confidence**
-
-High for the fixes actually verified (Catalog, Checkout payload, Keycloak
-realm/client names, GET /orders, silent-check-sso in Chrome) - each was
-reproduced broken and then confirmed fixed via a real login + booking attempt.
-Medium overall given Safari and Payments remain open.
 
 ---
 
@@ -958,3 +1048,349 @@ Inventory, but it still needs local and CI verification.
 **Notes**
 
 No secrets were committed. Kafka events remain unchanged and do not carry JWTs.
+
+---
+
+### 2026-07-14 22:52
+
+**Agent**
+
+Codex (GPT-5)
+
+**Task**
+
+Prepare application CI for immutable-digest progressive delivery.
+
+**Files Modified**
+
+- `.github/workflows/ci.yaml`
+- `docs/ai-logs.md`
+
+**Summary**
+
+Created `feature/canary` from the latest remote `dev`. Added Frontend change
+detection, conditional React/Vite lint and build gates, container builds on
+validation branches, main-only ACR publishing, strict registry digest
+verification, propagation of the digest into configuration `main`, and a bounded
+Git retry that fails after five unsuccessful pushes. The workflow remains
+compatible until `feature/frontend-updates` is merged.
+
+**Potential Risks**
+
+- The workflow has not run on GitHub yet, so repository secrets, runner tooling
+  and cross-repository write permission still require CI proof.
+- `actionlint` was not executed because downloading the tool was not authorized;
+  local YAML parsing and invariant checks passed.
+- The React branch has no test script; CI runs its declared lint and build
+  scripts without inventing a test command.
+
+**Confidence**
+
+High for branch conditions, digest propagation and compatibility with the
+inspected React branch. Medium until the first GitHub-hosted workflow run passes.
+
+**Notes**
+
+No image was pushed, no configuration repository was updated remotely, and no
+cluster-changing command was run.
+
+---
+
+### 2026-07-16 14:00
+
+**Agent**
+
+OpenAI Codex
+
+**Task**
+
+Create safe PowerShell demo traffic generators.
+
+**Files Modified**
+
+- `demo/traffic/*.ps1`
+- `demo/traffic/README.md`
+- `.github/workflows/pr.yaml`
+
+**Summary**
+
+Added separate traffic scripts for Frontend, Catalog, Orders, Inventory,
+Payments, and Payment Gateway Simulator plus a parallel orchestrator. Results
+are persisted as CSV/JSON. Notifications is excluded.
+
+**Potential Risks**
+
+Internal services require operator-managed port-forwards. Inventory and Payments
+default to readiness traffic; real idempotent POST traffic requires explicit
+opt-in and authentication.
+
+**Confidence**
+
+High
+
+**Notes**
+
+No credentials are stored or printed.
+
+---
+
+### 2026-07-15 16:31
+
+**Agent**
+
+Codex
+
+**Task**
+
+Fix Orders saga persistence, Kafka contract alignment, Jackson serialization, and payment-decline handling after reviewing the AI guidelines and architecture docs.
+
+**Files Modified**
+
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/repositories/Repositories.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/service/OrderServiceImpl.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/dto/OrderPlacedEvent.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/client/PaymentClient.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/kafka/Stage1Consumer.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/kafka/Stage2Consumer.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/kafka/Stage3Consumer.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/kafka/Stage4Consumer.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/config/JacksonConfig.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/PaymentClientTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/SagaIntegrationTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage1ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage2ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage3ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage4ConsumerTest.kt
+- docs/ai-logs.md
+
+**Summary**
+
+Replaced `save()`-based inserts for String-keyed Orders entities with explicit SQL inserts and `ON CONFLICT DO NOTHING` idempotency claims. Removed the hand-built Jackson `ObjectMapper` bean so Boot's configured snake_case mapper is used, and annotated `OrderPlacedEvent` with contract wire names. Updated all four Orders saga consumers to claim `event_id` atomically, publish configured `eurotransit.*` topics, include contract fields such as `event_id`, `event_timestamp`, `reservation_id`, `user_email`, and payment details, and propagate payment failure reasons to compensation. Updated `PaymentClient` so HTTP 402 is treated as a valid declined business response instead of a circuit-breaker failure.
+
+**Potential Risks**
+
+- Unit tests now assert the contract payload shape, but the Orders repository insert behavior still deserves a real Postgres/R2DBC integration test in CI.
+- The existing uncommitted Inventory retry and randomized-wait changes were preserved and not authored in this session.
+
+**Confidence**
+
+High — implementation follows the architecture and contract documents, and the Orders test suite passes locally.
+
+**Notes**
+
+No new topics, dependencies, services, or schema tables were introduced.
+
+---
+
+### 2026-07-15 16:47
+
+**Agent**
+
+Codex
+
+**Task**
+
+Review and verify the recent Orders fixes against `ai-mistake-log.md`, adding only focused tests and minimal correctness fixes.
+
+**Files Modified**
+
+- backend/orders/build.gradle.kts
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/client/PaymentClient.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/OrdersRepositoryPostgresTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/client/PaymentClientResilienceTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/OrdersCompensationPathTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/SagaIntegrationTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage1ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage2ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage3ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage4ConsumerTest.kt
+- docs/ai-logs.md
+
+**Summary**
+
+Added PostgreSQL Testcontainers coverage for Orders repository inserts and idempotency claims, stricter saga event contract assertions, a focused compensation propagation test, and PaymentClient resilience tests for 200, 402, 5xx, connection reset, timeout, and malformed 402 bodies. Replaced the fragile annotation-only PaymentClient circuit breaker path with the Resilience4j Kotlin `CircuitBreakerRegistry` API so suspend calls are actually protected, while preserving 402 as a business decline.
+
+**Potential Risks**
+
+- In this local environment Docker is unavailable, so `OrdersRepositoryPostgresTest` is skipped by Testcontainers. The test is present and should run in CI or any Docker-enabled developer environment.
+- The existing uncommitted Inventory retry and randomized-wait changes were preserved and not authored in this session.
+
+**Confidence**
+
+Medium — non-DB tests pass and the real-DB test is implemented, but full persistence verification still needs a Docker-enabled run.
+
+**Notes**
+
+No Kafka topics, database tables, or service boundaries were changed.
+
+---
+
+### 2026-07-15 15:57
+
+**Agent**
+
+Codex
+
+**Task**
+
+Re-run full Orders verification with Docker available and correct any regressions exposed by the Docker-backed test run.
+
+**Files Modified**
+
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/config/ObjectMapperConfig.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/client/PaymentClient.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/client/PaymentClientResilienceTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage1ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage2ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage3ConsumerTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/Stage4ConsumerTest.kt
+- docs/ai-logs.md
+
+**Summary**
+
+Docker-backed `OrdersRepositoryPostgresTest` started a real `postgres:16-alpine` container and executed all six repository tests. The first run exposed that Boot 4 did not create a `com.fasterxml.jackson.databind.ObjectMapper` bean for the Orders context after deleting the old config, so a single snake_case `ObjectMapperConfig` bean was added. Full-suite execution also exposed coroutine test methods whose inferred return types caused JUnit discovery warnings; those tests now return `Unit`. PaymentClient cancellation handling was tightened so caller cancellation is rethrown instead of converted into a payment failure, with coverage for open circuit and cancellation.
+
+**Potential Risks**
+
+- `ObjectMapperConfig` explicitly configures `SNAKE_CASE` to match `application.yaml`; if the project changes the naming strategy later, this bean must be kept in sync.
+- The existing uncommitted Inventory retry and randomized-wait changes were preserved and not authored in this session.
+
+**Confidence**
+
+High — `./gradlew clean test` executed 34 tests with 0 skipped, 0 failed, and `./gradlew check` passed.
+
+**Notes**
+
+No Kafka topics, database tables, or service boundaries were changed.
+
+---
+
+### 2026-07-15 17:31
+
+**Agent**
+
+Codex
+
+**Task**
+
+Complete final Orders merge checks, verify resilience behavior, and commit the branch.
+
+**Files Modified**
+
+- backend/orders/build.gradle.kts
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/client/InventoryClient.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/client/PaymentClient.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/config/ObjectMapperConfig.kt
+- backend/orders/src/main/kotlin/it/polito/eurotransit/orders/repositories/OutboxRepository.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/OrdersRepositoryPostgresTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/OrdersStage2RollbackPostgresTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/client/InventoryClientResilienceTest.kt
+- backend/orders/src/test/kotlin/it/polito/eurotransit/orders/client/PaymentClientResilienceTest.kt
+- docs/ai-logs.md
+
+**Summary**
+
+Replaced the interim bare `jacksonObjectMapper()` bean with a Jackson 2 mapper built through `Jackson2ObjectMapperBuilder`, applying Boot `JacksonProperties`, Kotlin module discovery, Java Time support, snake_case, and ISO date serialization. Added Docker-backed tests proving mapper behavior and real PostgreSQL transaction rollback for Stage 2 when outbox insertion fails. Fixed new outbox writes to use explicit SQL with `CAST(:payload AS jsonb)`.
+
+Added transport-level WebClient timeouts for Orders to Inventory and Payments using Reactor Netty `responseTimeout` and connect timeout, reusing the existing `resilience4j.timelimiter.instances.*.timeout-duration` values. Payment HTTP 402 remains a business `DECLINED` response, while timeout/network failures are observable by the circuit breaker and use the infrastructure fallback. Added focused resilience tests for Inventory and Payment clients, including breaker state transition coverage.
+
+Final Retry/CircuitBreaker interaction check for Inventory showed that one logical request currently produces one actual HTTP call, one circuit breaker failure, and lasts about one configured response timeout. The existing `@Retry` annotation did not produce three attempts for the suspend function under the verified Spring wiring.
+
+**Verification**
+
+- `cd backend/orders && ./gradlew clean test` passed.
+- `cd backend/orders && ./gradlew check` passed.
+- Final totals: 41 tests passed, 0 failed, 0 skipped.
+- Commit created: `4a148c4 Fix orders saga resilience and contracts`.
+
+**Potential Risks**
+
+- `Jackson2ObjectMapperBuilder` is deprecated in Spring Boot 4, but this bridge is currently required because Orders production code and Spring Kafka serializers still use Jackson 2 (`com.fasterxml.jackson.databind.ObjectMapper`) while Boot 4's main Jackson starter uses Jackson 3.
+- Inventory retry settings are present in configuration, but the verified suspend-function path did not perform multiple attempts. If three physical attempts are required, retry should be wired programmatically rather than relying on the annotation.
+
+**Confidence**
+
+High — full Orders tests and `check` passed after Docker-backed persistence, mapper, rollback, outbox JSONB, and client resilience coverage.
+## 2026-07-16 — Correct demo traffic after PR review
+
+**Agent:** OpenAI Codex
+
+**Task:** Fix the existing `feat/demo-traffic-scripts` PR without creating or
+merging another PR.
+
+**Files modified:**
+
+- `demo/traffic/Common.ps1`
+- `demo/traffic/Invoke-*.ps1`
+- `demo/traffic/Run-AllServicesTraffic.ps1`
+- `demo/traffic/README.md`
+- `demo/traffic/tests/*`
+- `.github/workflows/pr.yaml`
+- `docs/ai-mistakes.md`
+- `docs/agent-log.md`
+
+**Summary:** Made every target resolve to a validated destination, added
+independent routing per service, implemented the Orders money path, dynamic
+Inventory selection, unique/duplicate idempotency checks, explicit safe gateway
+modes, structured job output, cleanup, and local smoke tests.
+
+**Verification:** All PowerShell files parsed; the Python fixture compiled; the
+smoke suite passed for HTTP status handling, target mismatch, Orders terminal
+polling, Inventory/Payments duplicate identity, gateway modes, parallel
+orchestration, and job cleanup.
+
+**Risks:** Business modes consume real seats and may invoke the configured
+payment gateway. They remain explicit, low-rate, capped, and documented.
+
+---
+
+## 2026-07-16 — Complete second review of demo traffic PR
+
+**Agent:** OpenAI Codex
+
+**Task:** Correct only the remaining findings on PR #35 without modifying
+microservice implementation.
+
+**Files modified:**
+
+- `demo/traffic/Common.ps1`
+- `demo/traffic/Invoke-*.ps1`
+- `demo/traffic/Run-AllServicesTraffic.ps1`
+- `demo/traffic/README.md`
+- `demo/traffic/tests/*`
+- `docs/ai-logs.md`
+
+**Summary:** Added service-specific JWT inputs, strict public and Kubernetes DNS
+validation, isolated traffic profiles, an independent safe-gateway
+acknowledgement, controlled Orders failure scenarios, honest money-path outcome
+classification, contract guards against the real DTO/controller files, an
+optional read-only live smoke, and tested job cleanup.
+
+**Verification:** All PowerShell files parsed, the Python fixture compiled, and
+the smoke suite passed strict targets, missing/distinct tokens, HTTP error
+handling, confirmed/business-failure/timeout money paths, duplicate identity,
+gateway modes, ReadOnly/MoneyPath/PerServiceBusiness profiles, and cleanup.
+
+**Risks:** The mock does not prove deployed JWT audiences, Kafka progression,
+real downstream calls, gateway configuration, or end-to-end idempotency.
+Ctrl+C/SIGINT was not automated cross-platform; only the cleanup function and
+normal completion were tested.
+
+**Confidence:** High for local script contracts and mock behavior; medium for
+the optional live behavior until an operator runs the documented checks.
+
+---
+
+# 2026-07-16 - Circuit-breaker live-check k6 scripts
+
+Added two k6 scripts for the remaining live resilience checks:
+
+- `tools/k6/orders-payments-circuit-breaker.js` generates authenticated
+  `POST /api/v1/orders` traffic while the Orders -> Payments chaos experiment is
+  active.
+- `tools/k6/payments-gateway-circuit-breaker.js` generates authenticated
+  `POST /api/v1/payments/authorize` traffic, intended to run through a local
+  port-forward to Payments because Payments is not exposed by the public Ingress.
+
+Both scripts require a bearer token supplied outside Git. They intentionally do
+not fetch, embed, or store credentials.

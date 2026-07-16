@@ -9,9 +9,33 @@ spring:
       group-id: notifications-group
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: "it.polito.eurotransit.notifications.dto"
+      # Was JsonDeserializer, which deserializes straight to a plain
+      # LinkedHashMap when the producer (Orders' outbox) sends no type header
+      # it can resolve - Orders doesn't have these DTOs on its classpath, so
+      # there's nothing to key a type mapping off. StringDeserializer plus the
+      # RecordMessageConverter bean in KafkaConfig hands each @KafkaListener
+      # its raw JSON string and lets that converter do the parsing AND the
+      # type conversion into whatever type the listener method declares
+      # (OrderConfirmedEvent vs OrderFailedEvent) in one step. Confirmed live
+      # 2026-07-16: every order-confirmed/order-failed message was silently
+      # dropped ("Cannot convert from LinkedHashMap to OrderConfirmedEvent")
+      # until this pairing was fixed.
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+app:
+  notifications:
+    from: ${SMTP_FROM:${spring.mail.username}}
 
 management:
   endpoints:

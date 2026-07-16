@@ -6,6 +6,8 @@ import it.polito.eurotransit.orders.repositories.OrderRepository
 import it.polito.eurotransit.orders.repositories.OutboxRepository
 import it.polito.eurotransit.orders.repositories.ProcessedRequestRepository
 import it.polito.eurotransit.orders.service.OrderServiceImpl 
+import it.polito.eurotransit.orders.metrics.OrdersPromotionMetrics
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
@@ -21,7 +23,13 @@ class SagaIntegrationTest {
         val outboxRepo = mock<OutboxRepository>()
         val objectMapper = ObjectMapper()
 
-        val orderService = OrderServiceImpl(orderRepo, requestRepo, outboxRepo, objectMapper)
+        val orderService = OrderServiceImpl(
+            orderRepo,
+            requestRepo,
+            outboxRepo,
+            objectMapper,
+            OrdersPromotionMetrics(SimpleMeterRegistry())
+        )
 
         val request = OrderRequest(
             idempotencyKey = "idem-999",
@@ -34,15 +42,41 @@ class SagaIntegrationTest {
             currency = "EUR"
         )
 
-        whenever(requestRepo.findById("idem-999")).thenReturn(null)
-        whenever(orderRepo.save(any())).thenAnswer { it.arguments[0] }
+        whenever(requestRepo.insertIfAbsent(eq("idem-999"), any())).thenReturn(1)
+        whenever(orderRepo.insertNew(
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
+        )).thenReturn(1)
 
         val resultOrder = orderService.createOrder(request)
 
         assertEquals("PENDING", resultOrder.status)
         
-        verify(outboxRepo, times(1)).save(argThat { 
-            topic == "eurotransit.order-placed" && payload.contains(resultOrder.orderId) 
+        verify(outboxRepo, times(1)).insert(
+            argThat { eventId -> eventId.startsWith("evt-") },
+            eq("eurotransit.order-placed"),
+            argThat { payload ->
+            val event = objectMapper.readTree(payload)
+            assertEquals(resultOrder.orderId, event["order_id"].asText())
+            assertEquals("tr-456", event["train_id"].asText())
+            assertEquals("STANDARD", event["seat_class"].asText())
+            assertEquals(1, event["quantity"].asInt())
+            assertEquals(true, event.has("event_id"))
+            assertEquals(true, event.has("event_timestamp"))
+            assertEquals(false, event.has("eventId"))
+            assertEquals(false, event.has("orderId"))
+            assertEquals(false, event.has("trainId"))
+            event["event_id"].asText().startsWith("evt-")
         })
     }
 }

@@ -29,16 +29,41 @@ class PaymentClientTest {
         )
 
         val request = PaymentAuthorizeRequest(
-            idempotency_key = "ord-123", 
-            user_id = "user-1", 
-            amount = BigDecimal("50.00"), 
+            idempotency_key = "ord-123",
+            user_id = "user-1",
+            amount = BigDecimal("50.00"),
             currency = "EUR"
         )
-        
+
         val fallbackResult = client.fallbackPayment(request, RuntimeException("Simulated Network Error"))
 
         assertEquals("DECLINED", fallbackResult.status)
         assertEquals("payment_system_unavailable", fallbackResult.reason)
+    }
+
+    @Test
+    fun `authorizePayment treats HTTP 402 as declined business response`() = runBlocking {
+        stubFor(
+            post(urlEqualTo("/authorize"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(402)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""{"status":"DECLINED","reason":"insufficient_funds"}"""),
+                ),
+        )
+
+        val request = PaymentAuthorizeRequest(
+            idempotency_key = "ord-123",
+            user_id = "user-1",
+            amount = BigDecimal("50.00"),
+            currency = "EUR",
+        )
+
+        val response = client.authorizePayment(request)
+
+        assertEquals("DECLINED", response.status)
+        assertEquals("insufficient_funds", response.reason)
     }
 
     @Test
@@ -49,8 +74,13 @@ class PaymentClientTest {
             clientId = "orders-service",
             clientSecret = "test-secret",
             scope = "",
+            issuerUri = "https://g02.cpo2026.it/auth/realms/eurotransit",
         )
-        val client = PaymentClient(WebClient.builder(), "http://localhost:8089", tokenProvider)
+        val client = PaymentClient(
+            WebClient.builder(),
+            "http://localhost:8089",
+            serviceTokenProvider = tokenProvider,
+        )
 
         val request = PaymentAuthorizeRequest(
             idempotency_key = "ord-123",
