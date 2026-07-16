@@ -30,8 +30,30 @@ export const Catalog = () => {
     return `${year}-${month}-${day}`;
   };
 
-  const todayIso = toLocalIso(new Date());
+  const [todayIso, setTodayIso] = useState(() => toLocalIso(new Date()));
   const nowMs = Date.now();
+
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval>;
+
+    const scheduleMidnightUpdate = () => {
+      const now = new Date();
+      const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
+      const msUntilMidnight = nextMidnight.getTime() - now.getTime();
+
+      return setTimeout(() => {
+        setTodayIso(toLocalIso(new Date()));
+        intervalId = setInterval(() => setTodayIso(toLocalIso(new Date())), 24 * 60 * 60 * 1000);
+      }, msUntilMidnight);
+    };
+
+    const timeoutId = scheduleMidnightUpdate();
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, []);
 
   useEffect(() => {
     api.get<ProductsResponse>('/catalog/products')
