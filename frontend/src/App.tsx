@@ -17,7 +17,15 @@ export const App = () => {
       const pendingRedirect = sessionStorage.getItem('post_login_redirect');
       if (pendingRedirect) {
         sessionStorage.removeItem('post_login_redirect');
-        navigate(pendingRedirect);
+        
+        // Security fix: Validate URL to prevent open redirect attacks.
+        // Ensure it starts with "/" (local route) and not "//" (protocol-relative external URL).
+        if (pendingRedirect.startsWith('/') && !pendingRedirect.startsWith('//')) {
+          navigate(pendingRedirect);
+        } else {
+          console.warn('Blocked suspicious redirect URL:', pendingRedirect);
+          navigate('/');
+        }
       }
     }
   }, [initialized, keycloak.authenticated, navigate]);

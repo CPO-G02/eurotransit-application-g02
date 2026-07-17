@@ -10,6 +10,8 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import io.github.resilience4j.springboot3.circuitbreaker.autoconfigure.CircuitBreakerAutoConfiguration
 import io.github.resilience4j.springboot3.circuitbreaker.autoconfigure.CircuitBreakerConfigurationOnMissingBean
+import io.github.resilience4j.springboot3.retry.autoconfigure.RetryAutoConfiguration
+import io.github.resilience4j.springboot3.retry.autoconfigure.RetryConfigurationOnMissingBean
 import it.polito.eurotransit.orders.config.WebClientConfig
 import it.polito.eurotransit.orders.dto.PaymentAuthorizeRequest
 import kotlinx.coroutines.TimeoutCancellationException
@@ -56,6 +58,8 @@ class PaymentClientResilienceTest @Autowired constructor(
         WebClientConfig::class,
         CircuitBreakerAutoConfiguration::class,
         CircuitBreakerConfigurationOnMissingBean::class,
+        RetryAutoConfiguration::class,
+        RetryConfigurationOnMissingBean::class,
     )
     class TestApplication
 

@@ -1,8 +1,12 @@
 package it.polito.eurotransit.orders.client
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import io.github.resilience4j.kotlin.circuitbreaker.executeSuspendFunction
-import io.github.resilience4j.retry.annotation.Retry
+import io.github.resilience4j.kotlin.retry.executeSuspendFunction
+import io.github.resilience4j.retry.Retry
+import io.github.resilience4j.retry.RetryConfig
+import io.github.resilience4j.retry.RetryRegistry
 import it.polito.eurotransit.orders.dto.InventoryReserveRequest
 import it.polito.eurotransit.orders.dto.InventoryReserveResponse
 import kotlinx.coroutines.CancellationException
@@ -19,7 +23,9 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import org.springframework.web.reactive.function.client.awaitBody
 import reactor.core.publisher.Mono
 import reactor.netty.http.client.HttpClient
+import java.io.IOException
 import java.time.Duration
+import java.util.concurrent.TimeoutException
 
 @Component
 class InventoryClient(
@@ -28,6 +34,7 @@ class InventoryClient(
     @Value("\${resilience4j.timelimiter.instances.inventory-client.timeout-duration:2s}")
     private val inventoryTimeout: Duration = Duration.ofSeconds(2),
     private val circuitBreakerRegistry: CircuitBreakerRegistry = CircuitBreakerRegistry.ofDefaults(),
+    private val retryRegistry: RetryRegistry = RetryRegistry.ofDefaults(),
     private val serviceTokenProvider: ServiceTokenProvider? = null,
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
@@ -36,6 +43,16 @@ class InventoryClient(
     // suspend functions (no aspectjweaver on the classpath, and the 2.2.0 aspect
     // records success the moment a coroutine suspends). See docs/ai-logs.md.
     private val circuitBreaker = circuitBreakerRegistry.circuitBreaker("inventory-client")
+
+    private val retry: Retry = run {
+        val base = retryRegistry.retry("inventory-client")
+        val augmented = RetryConfig.from<Any>(base.retryConfig)
+            .retryOnException(::isClientRetryableException)
+            .build()
+        val retryInstance = Retry.of("inventory-client", augmented)
+        retryRegistry.replace("inventory-client", retryInstance)
+        retryInstance
+    }
 
     // responseTimeout turns a hung Inventory into a failed call the breaker can
     // record; without it the coroutine suspends forever and no outcome is ever
@@ -53,10 +70,13 @@ class InventoryClient(
         .filter(bearerTokenFilter())
         .build()
 
-    @Retry(name = "inventory-client")
     suspend fun reserveSeats(request: InventoryReserveRequest): InventoryReserveResponse {
         return try {
-            circuitBreaker.executeSuspendFunction { doReserveSeats(request) }
+            retry.executeSuspendFunction {
+                circuitBreaker.executeSuspendFunction {
+                    doReserveSeats(request)
+                }
+            }
         } catch (e: CancellationException) {
             throw e
         }

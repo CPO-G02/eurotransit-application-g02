@@ -22,8 +22,38 @@ export const Catalog = () => {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const isLanding = location.pathname === '/';
-  const todayIso = new Date().toISOString().split('T')[0];
+
+  const toLocalIso = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const [todayIso, setTodayIso] = useState(() => toLocalIso(new Date()));
   const nowMs = Date.now();
+
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval>;
+
+    const scheduleMidnightUpdate = () => {
+      const now = new Date();
+      const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
+      const msUntilMidnight = nextMidnight.getTime() - now.getTime();
+
+      return setTimeout(() => {
+        setTodayIso(toLocalIso(new Date()));
+        intervalId = setInterval(() => setTodayIso(toLocalIso(new Date())), 24 * 60 * 60 * 1000);
+      }, msUntilMidnight);
+    };
+
+    const timeoutId = scheduleMidnightUpdate();
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, []);
 
   useEffect(() => {
     api.get<ProductsResponse>('/catalog/products')
