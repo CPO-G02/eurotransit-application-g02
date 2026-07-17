@@ -20,6 +20,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.WebClientResponseException
+import org.springframework.web.reactive.function.client.WebClientRequestException
+import com.github.tomakehurst.wiremock.http.Fault
 import java.time.Duration
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -48,16 +50,7 @@ class InventoryClientRetryTest {
         val cfg = RetryConfig.custom<Any>()
             .maxAttempts(maxAttempts)
             .intervalFunction(IntervalFunction.ofExponentialBackoff(Duration.ofMillis(10), 2.0))
-            .retryOnException { t: Throwable ->
-                when {
-                    t is io.github.resilience4j.circuitbreaker.CallNotPermittedException -> false
-                    t is kotlinx.coroutines.CancellationException -> false
-                    t is java.io.IOException -> true
-                    t is java.util.concurrent.TimeoutException -> true
-                    t is WebClientResponseException && t.statusCode.is5xxServerError -> true
-                    else -> false
-                }
-            }
+            .retryOnException(::isClientRetryableException)
             .build()
         return RetryRegistry.of(cfg)
     }
@@ -184,6 +177,30 @@ class InventoryClientRetryTest {
         val cfg = retryRegistry.retry("inventory-client").retryConfig
 
         assertEquals(3, cfg.maxAttempts)
+        assertTrue(cfg.exceptionPredicate.test(
+            WebClientRequestException(
+                java.io.IOException("Connection reset"),
+                org.springframework.http.HttpMethod.POST,
+                java.net.URI.create("http://localhost"),
+                org.springframework.http.HttpHeaders.EMPTY
+            )
+        ))
+        assertTrue(cfg.exceptionPredicate.test(
+            WebClientResponseException.create(
+                503, "Service Unavailable",
+                org.springframework.http.HttpHeaders.EMPTY,
+                byteArrayOf(),
+                null
+            )
+        ))
+        kotlin.test.assertFalse(cfg.exceptionPredicate.test(
+            WebClientResponseException.create(
+                409, "Conflict",
+                org.springframework.http.HttpHeaders.EMPTY,
+                byteArrayOf(),
+                null
+            )
+        ))
 
         val intervalFn = cfg.intervalFunction!!
         val t1 = intervalFn.apply(1)
@@ -209,6 +226,61 @@ class InventoryClientRetryTest {
             io.github.resilience4j.circuitbreaker.CircuitBreaker.State.OPEN,
             cb.state,
         )
+    }
+
+    @Test
+    fun `a response timeout is retried`() = runBlocking {
+        server.stubFor(
+            post(urlEqualTo("/reserve")).willReturn(
+                aResponse().withFixedDelay(2_000).withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"reservation_id":"res-1","status":"RESERVED"}"""),
+            ),
+        )
+
+        assertFailsWith<Exception> {
+            client.reserveSeats(request()) // client timeout is 300ms
+        }
+
+        server.verify(3, postRequestedFor(urlEqualTo("/reserve")))
+    }
+
+    @Test
+    fun `a connection failure is retried`() = runBlocking {
+        server.stubFor(
+            post(urlEqualTo("/reserve"))
+                .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
+        )
+
+        assertFailsWith<Exception> {
+            client.reserveSeats(request())
+        }
+
+        server.verify(3, postRequestedFor(urlEqualTo("/reserve")))
+    }
+
+    @Test
+    fun `retry events are emitted by the registered instance`() = runBlocking {
+        val retry = retryRegistry.retry("inventory-client")
+        val events = java.util.concurrent.CopyOnWriteArrayList<io.github.resilience4j.retry.event.RetryEvent>()
+        retry.eventPublisher.onEvent { event ->
+            events.add(event)
+        }
+
+        server.stubFor(
+            post(urlEqualTo("/reserve"))
+                .willReturn(aResponse().withStatus(503)),
+        )
+
+        assertFailsWith<Exception> {
+            client.reserveSeats(request())
+        }
+
+        assertTrue(events.isNotEmpty(), "Events should be emitted by the registered Retry instance")
+        val retryEvents = events.filter { it.eventType == io.github.resilience4j.retry.event.RetryEvent.Type.RETRY }
+        assertEquals(2, retryEvents.size, "Should observe exactly 2 retry events")
+        val errorEvents = events.filter { it.eventType == io.github.resilience4j.retry.event.RetryEvent.Type.ERROR }
+        assertEquals(1, errorEvents.size, "Should observe exactly 1 error event")
     }
 
     private fun request() = InventoryReserveRequest(

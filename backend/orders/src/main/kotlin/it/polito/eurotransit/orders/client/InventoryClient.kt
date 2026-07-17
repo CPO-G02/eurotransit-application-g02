@@ -47,18 +47,11 @@ class InventoryClient(
     private val retry: Retry = run {
         val base = retryRegistry.retry("inventory-client")
         val augmented = RetryConfig.from<Any>(base.retryConfig)
-            .retryOnException { t ->
-                when {
-                    t is CancellationException       -> false
-                    t is CallNotPermittedException   -> false
-                    t is IOException                 -> true
-                    t is TimeoutException            -> true
-                    t is WebClientResponseException && t.statusCode.is5xxServerError -> true
-                    else                             -> false
-                }
-            }
+            .retryOnException(::isClientRetryableException)
             .build()
-        Retry.of("inventory-client", augmented)
+        val retryInstance = Retry.of("inventory-client", augmented)
+        retryRegistry.replace("inventory-client", retryInstance)
+        retryInstance
     }
 
     // responseTimeout turns a hung Inventory into a failed call the breaker can
@@ -98,8 +91,6 @@ class InventoryClient(
                 .bodyValue(request)
                 .retrieve()
                 .awaitBody<InventoryReserveResponse>()
-        } catch (e: CancellationException) {
-            throw e
         } catch (e: WebClientResponseException) {
             if (e.statusCode == HttpStatus.CONFLICT) {
                 // 409 = sold out: a valid business answer, handled inside the

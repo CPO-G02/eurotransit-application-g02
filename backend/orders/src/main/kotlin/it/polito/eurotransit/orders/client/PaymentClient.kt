@@ -45,18 +45,11 @@ class PaymentClient(
     private val retry: Retry = run {
         val base = retryRegistry.retry("payments-client")
         val augmented = RetryConfig.from<Any>(base.retryConfig)
-            .retryOnException { t ->
-                when {
-                    t is CancellationException       -> false
-                    t is CallNotPermittedException   -> false
-                    t is IOException                 -> true
-                    t is TimeoutException            -> true
-                    t is WebClientResponseException && t.statusCode.is5xxServerError -> true
-                    else                             -> false
-                }
-            }
+            .retryOnException(::isClientRetryableException)
             .build()
-        Retry.of("payments-client", augmented)
+        val retryInstance = Retry.of("payments-client", augmented)
+        retryRegistry.replace("payments-client", retryInstance)
+        retryInstance
     }
 
     private val webClient = webClientBuilder.clone()
@@ -87,26 +80,24 @@ class PaymentClient(
     }
 
     private suspend fun doAuthorizePayment(req: PaymentAuthorizeRequest): PaymentAuthorizeResponse {
-        return try {
-            webClient.post()
-                .uri("/authorize")
-                .bodyValue(req)
-                .exchangeToMono { response ->
-                    when {
-                        // 402 = a genuine card decline (contract §1.5): a valid business
-                        // answer, not an outage. Routed through the same success path as
-                        // 2xx so a burst of declines can never trip the breaker.
-                        response.statusCode().is2xxSuccessful -> response.bodyToMono(PaymentAuthorizeResponse::class.java)
-                        response.statusCode() == HttpStatus.PAYMENT_REQUIRED -> response.bodyToMono(PaymentAuthorizeResponse::class.java)
-                        else -> response.createException().flatMap { Mono.error(it) }
-                    }
+        return webClient.post()
+            .uri("/authorize")
+            .bodyValue(req)
+            .exchangeToMono { response ->
+                when {
+                    // 402 = a genuine card decline (contract §1.5): a valid business
+                    // answer, not an outage. Routed through the same success path as
+                    // 2xx so a burst of declines can never trip the breaker.
+                    response.statusCode().is2xxSuccessful -> response.bodyToMono(PaymentAuthorizeResponse::class.java)
+                    response.statusCode() == HttpStatus.PAYMENT_REQUIRED -> response.bodyToMono(PaymentAuthorizeResponse::class.java)
+                    else -> response.createException().flatMap { Mono.error(it) }
                 }
-                .awaitSingle()
-        } catch (e: CancellationException) {
-            throw e
-        }
+            }
+            .awaitSingle()
     }
 
+    // Breaker open (CallNotPermittedException) or the call failed/timed out:
+    // no decision from Payments, so fail safe as DECLINED.
     suspend fun fallbackPayment(req: PaymentAuthorizeRequest, t: Throwable): PaymentAuthorizeResponse {
         return PaymentAuthorizeResponse(
             transaction_id = null,
