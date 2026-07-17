@@ -25,6 +25,7 @@ import kotlin.test.assertTrue
 class InventoryClientResilienceTest {
 
     private lateinit var circuitBreakerRegistry: CircuitBreakerRegistry
+    private lateinit var retryRegistry: io.github.resilience4j.retry.RetryRegistry
     private lateinit var inventoryClient: InventoryClient
 
     private val breaker: CircuitBreaker
@@ -53,11 +54,16 @@ class InventoryClientResilienceTest {
                 .failureRateThreshold(50f)
                 .build(),
         )
+        val retryConfig = io.github.resilience4j.retry.RetryConfig.custom<Any>()
+            .maxAttempts(1)
+            .build()
+        retryRegistry = io.github.resilience4j.retry.RetryRegistry.of(retryConfig)
         inventoryClient = InventoryClient(
             WebClient.builder(),
             "http://localhost:${inventory.port()}",
             inventoryTimeout = Duration.ofMillis(250),
             circuitBreakerRegistry = circuitBreakerRegistry,
+            retryRegistry = retryRegistry,
         )
     }
 
@@ -100,6 +106,7 @@ class InventoryClientResilienceTest {
             "http://10.255.255.1:81",
             inventoryTimeout = Duration.ofMillis(250),
             circuitBreakerRegistry = circuitBreakerRegistry,
+            retryRegistry = retryRegistry,
         )
 
         val elapsedMs = measureTimeMillis {

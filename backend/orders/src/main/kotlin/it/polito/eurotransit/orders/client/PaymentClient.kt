@@ -1,7 +1,12 @@
 package it.polito.eurotransit.orders.client
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import io.github.resilience4j.kotlin.circuitbreaker.executeSuspendFunction
+import io.github.resilience4j.kotlin.retry.executeSuspendFunction
+import io.github.resilience4j.retry.Retry
+import io.github.resilience4j.retry.RetryConfig
+import io.github.resilience4j.retry.RetryRegistry
 import it.polito.eurotransit.orders.dto.PaymentAuthorizeRequest
 import it.polito.eurotransit.orders.dto.PaymentAuthorizeResponse
 import io.netty.channel.ChannelOption
@@ -15,9 +20,12 @@ import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.ClientRequest
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction
 import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.reactive.function.client.WebClientResponseException
 import reactor.core.publisher.Mono
 import reactor.netty.http.client.HttpClient
+import java.io.IOException
 import java.time.Duration
+import java.util.concurrent.TimeoutException
 
 @Component
 class PaymentClient(
@@ -26,12 +34,24 @@ class PaymentClient(
     @Value("\${resilience4j.timelimiter.instances.payments-client.timeout-duration:2s}")
     private val paymentsTimeout: Duration = Duration.ofSeconds(2),
     private val circuitBreakerRegistry: CircuitBreakerRegistry = CircuitBreakerRegistry.ofDefaults(),
+    private val retryRegistry: RetryRegistry = RetryRegistry.ofDefaults(),
     // Reuses the orders-service token already used for Inventory; gated by the
     // same app.security.service-token.* toggle.
     private val serviceTokenProvider: ServiceTokenProvider? = null,
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val circuitBreaker = circuitBreakerRegistry.circuitBreaker("payments-client")
+
+    private val retry: Retry = run {
+        val base = retryRegistry.retry("payments-client")
+        val augmented = RetryConfig.from<Any>(base.retryConfig)
+            .retryOnException(::isClientRetryableException)
+            .build()
+        val retryInstance = Retry.of("payments-client", augmented)
+        retryRegistry.replace("payments-client", retryInstance)
+        retryInstance
+    }
+
     private val webClient = webClientBuilder.clone()
         .baseUrl(paymentsUrl)
         .clientConnector(
@@ -46,12 +66,14 @@ class PaymentClient(
 
     suspend fun authorizePayment(req: PaymentAuthorizeRequest): PaymentAuthorizeResponse {
         return try {
-            circuitBreaker.executeSuspendFunction { doAuthorizePayment(req) }
+            retry.executeSuspendFunction {
+                circuitBreaker.executeSuspendFunction {
+                    doAuthorizePayment(req)
+                }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
-            // Breaker open (CallNotPermittedException) or the call failed/timed
-            // out: no decision from Payments, so fail safe as DECLINED.
             logger.warn("event=payments_unavailable order_id=${req.idempotency_key} error=$t")
             fallbackPayment(req, t)
         }
@@ -74,6 +96,8 @@ class PaymentClient(
             .awaitSingle()
     }
 
+    // Breaker open (CallNotPermittedException) or the call failed/timed out:
+    // no decision from Payments, so fail safe as DECLINED.
     suspend fun fallbackPayment(req: PaymentAuthorizeRequest, t: Throwable): PaymentAuthorizeResponse {
         return PaymentAuthorizeResponse(
             transaction_id = null,
