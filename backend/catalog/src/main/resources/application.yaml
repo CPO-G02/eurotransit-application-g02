@@ -23,3 +23,11 @@ management:
       probes:
         enabled: true
       show-details: never
+  # 100% sampling: this project's traffic is low enough that dropping spans
+  # would just mean missing the money-path trace when it's actually needed.
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}

@@ -49,6 +49,14 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    # Propagates the trace context across the outbox's Kafka hops (each
+    # Stage1-4Consumer both consumes and, via the outbox, produces the next
+    # stage's event) - without this, the money-path trace would break into
+    # disconnected fragments at every Kafka boundary instead of one span tree.
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
 
 # custom app properties v3 main
 app:
@@ -132,3 +140,9 @@ management:
       probes:
         enabled: true
       show-details: never
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
