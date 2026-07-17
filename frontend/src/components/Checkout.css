@@ -21,6 +21,35 @@
   margin-bottom: 2rem;
 }
 
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 1rem;
+  transition: opacity 0.15s ease;
+}
+
+.btn-back svg {
+  transition: transform 0.15s ease;
+}
+
+.btn-back:hover {
+  opacity: 0.75;
+}
+
+.btn-back:hover svg {
+  transform: translateX(-2px);
+}
+
 .step-tag {
   font-family: var(--font-mono);
   font-size: 0.68rem;

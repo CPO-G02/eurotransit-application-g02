@@ -278,6 +278,12 @@ export const Checkout = () => {
     <div className="checkout-viewport">
       <div className="checkout-container">
         <header className="checkout-header">
+          <button className="btn-back" onClick={() => navigate('/catalog')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            All trains
+          </button>
           <span className="step-tag">CHECKOUT PROCESS</span>
           <h1>Review & Confirm</h1>
         </header>

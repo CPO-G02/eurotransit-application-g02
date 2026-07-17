@@ -112,23 +112,26 @@ export const MyTrips = () => {
   return (
     <div className="trips-viewport">
       <div className="trips-container">
+        <button className="btn-back" onClick={() => navigate('/catalog')}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          All trains
+        </button>
+
         <header className="trips-header">
           <div>
             <span className="step-tag">PASSENGER TELEMETRY</span>
             <h1>Booked Journeys</h1>
-          </div>
-          <div className="user-badge">
-            <span>Account:</span>
-            <strong>{keycloak.tokenParsed?.preferred_username || "Authorized User"}</strong>
           </div>
          </header>
 
         {orders.length === 0 ? (
           <div className="state-card empty-state">
             <span className="state-tag">NO RECORD FOUND</span>
-            <h2>No active bookings</h2>
-            <p>You have not scheduled any transport across the EuroTransit network yet.</p>
-            <button className="btn-action" onClick={() => navigate('/catalog')}>Explore Catalog</button>
+            <h2>No trips yet</h2>
+            <p>Book your first seat and it will show up here with its live status.</p>
+            <button className="btn-action" onClick={() => navigate('/catalog')}>Browse trains</button>
           </div>
         ) : (
           <div className="orders-list">
