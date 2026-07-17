@@ -28,6 +28,11 @@ dependencies {
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
 	implementation("tools.jackson.module:jackson-module-kotlin")
 	runtimeOnly("io.micrometer:micrometer-registry-prometheus")
+	implementation("org.springframework.boot:spring-boot-micrometer-tracing")
+	implementation("org.springframework.boot:spring-boot-micrometer-tracing-brave")
+	implementation("io.micrometer:micrometer-tracing-bridge-brave")
+	implementation("io.zipkin.reporter2:zipkin-reporter-brave")
+	implementation("io.zipkin.reporter2:zipkin-sender-urlconnection")
 	testImplementation("org.springframework.boot:spring-boot-starter-webflux-test")
 	// Stubs api.stripe.com so the real Stripe path is tested without live creds.
 	testImplementation("org.wiremock:wiremock-standalone:3.9.1")

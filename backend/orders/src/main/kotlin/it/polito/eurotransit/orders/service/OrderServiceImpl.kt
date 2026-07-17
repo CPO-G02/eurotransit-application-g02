@@ -8,6 +8,7 @@ import it.polito.eurotransit.orders.repositories.OutboxRepository
 import it.polito.eurotransit.orders.repositories.ProcessedRequestRepository
 import it.polito.eurotransit.orders.dto.OrderPlacedEvent
 import it.polito.eurotransit.orders.metrics.OrdersPromotionMetrics
+import it.polito.eurotransit.orders.metrics.OrdersPromotionCommitMetrics
 import kotlinx.coroutines.flow.toList
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -20,7 +21,8 @@ class OrderServiceImpl(
     private val requestRepo: ProcessedRequestRepository,
     private val outboxRepo: OutboxRepository,
     private val objectMapper: ObjectMapper,
-    private val promotionMetrics: OrdersPromotionMetrics
+    private val promotionMetrics: OrdersPromotionMetrics,
+    private val commitMetrics: OrdersPromotionCommitMetrics
 ) : OrderService {
 
     @Transactional
@@ -34,8 +36,8 @@ class OrderServiceImpl(
             throw exception
         }
 
-        val order = if (claimed == 0) {
-            try {
+        return if (claimed == 0) {
+            val existingOrder = try {
                 val existingReq = requestRepo.findById(req.idempotencyKey)
                     ?: throw IllegalStateException("idempotency key was claimed but no row was found")
                 orderRepo.findById(existingReq.orderId)
@@ -44,12 +46,13 @@ class OrderServiceImpl(
                 promotionMetrics.persistenceFailure()
                 throw exception
             }
+            commitMetrics.recordReplayAfterCommit()
+            existingOrder
         } else {
-            saveNewOrder(req, newOrderId)
+            val newOrder = saveNewOrder(req, newOrderId)
+            commitMetrics.recordNewOrderAfterCommit()
+            newOrder
         }
-
-        promotionMetrics.requestAccepted()
-        return order
     }
 
     private suspend fun saveNewOrder(req: OrderRequest, newOrderId: String): Order {
@@ -101,7 +104,6 @@ class OrderServiceImpl(
                 topic = "eurotransit.order-placed",
                 payload = payloadStr,
             )
-            promotionMetrics.outboxCreated()
         } catch (exception: Exception) {
             promotionMetrics.outboxCreationFailure()
             throw exception
