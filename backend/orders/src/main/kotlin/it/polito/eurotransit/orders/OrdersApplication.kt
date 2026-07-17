@@ -14,4 +14,5 @@ class OrdersApplication
 
 fun main(args: Array<String>) {
     runApplication<OrdersApplication>(*args)
+    println("OrdersApplication started")
 }
