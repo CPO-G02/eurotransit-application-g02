@@ -8,9 +8,10 @@
 -- Catalog runs (same generator), so every reservable train also appears in the
 -- catalog listing.
 --
--- Concurrency test target: TR-MIL-ROM-20260710-0715 / business is pinned to 5
--- seats — this is the row the "10 concurrent requests / 5 seats"
--- test reserves against.
+-- Demo sell-out target: TR-MIL-ROM-20260710-0715 / business is pinned to 5 seats,
+-- so a live demo has a deterministic route to sell out. Nothing automated reads
+-- this row: InventoryReserveTest wipes `seats` and builds its own, so the
+-- "10 concurrent reserves on 5 seats" test does not touch it.
 
 INSERT INTO seats (train_id, seat_class, available) VALUES
     ('TR-MIL-ROM-20260710-0715', 'standard', 77),

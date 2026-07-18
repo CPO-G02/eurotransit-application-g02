@@ -10,10 +10,8 @@
 --
 -- A handful of runs across different routes are seeded with single-digit
 -- availability to make sold-out / low-availability demo scenarios plausible.
--- This does NOT drive the seat concurrency test (10 concurrent requests / N
--- seats): that number is defined by the inventory-db seed, added in the
--- "Implement Inventory POST /reserve" task. If the two ever diverge,
--- inventory-db wins.
+-- These figures drive nothing but the UI: the reservable counts live in the
+-- inventory-db seed, and if the two ever diverge, inventory-db wins.
 --
 -- Departure window: 2026-07-10 .. 2026-07-23 (14 days). Dates are frozen at generation
 -- time; bump START_DATE in the generator and regenerate to refresh the window.
